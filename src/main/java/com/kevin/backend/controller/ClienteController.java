@@ -2,6 +2,7 @@ package com.kevin.backend.controller;
 
 import com.kevin.backend.dto.ClienteDTO;
 import com.kevin.backend.service.ClienteService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -30,12 +31,12 @@ public class ClienteController {
     }
 
     @PostMapping
-    public ClienteDTO crear(@RequestBody ClienteDTO dto) {
+    public ClienteDTO crear(@Valid @RequestBody ClienteDTO dto) {
         return clienteService.crear(dto);
     }
 
     @PutMapping("/{id}")
-    public ClienteDTO actualizar(@PathVariable Long id, @RequestBody ClienteDTO dto) {
+    public ClienteDTO actualizar(@PathVariable Long id, @Valid @RequestBody ClienteDTO dto) {
         return clienteService.actualizar(id, dto);
     }
 

@@ -2,6 +2,7 @@ package com.kevin.backend.controller;
 
 import com.kevin.backend.dto.ContactoDTO;
 import com.kevin.backend.service.ContactoService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -15,12 +16,12 @@ public class ContactoController {
     }
 
     @PostMapping
-    public ContactoDTO agregar(@PathVariable Long clienteId, @RequestBody ContactoDTO dto) {
+    public ContactoDTO agregar(@PathVariable Long clienteId, @Valid @RequestBody ContactoDTO dto) {
         return contactoService.agregar(clienteId, dto);
     }
 
     @PutMapping("/{contactoId}")
-    public ContactoDTO actualizar(@PathVariable Long clienteId, @PathVariable Long contactoId, @RequestBody ContactoDTO dto) {
+    public ContactoDTO actualizar(@PathVariable Long clienteId, @PathVariable Long contactoId, @Valid @RequestBody ContactoDTO dto) {
         return contactoService.actualizar(contactoId, dto);
     }
 
