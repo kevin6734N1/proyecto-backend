@@ -31,3 +31,9 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Base de datos H2 en archivo (runtime, no código) ###
+data/
+
+### Config JVM local (ruta de Java específica de cada máquina) ###
+.mvn/jvm.config

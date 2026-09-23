@@ -147,9 +147,13 @@ public class CotizacionService {
     }
 
     private String generarCodigo() {
-        String prefijo = "COI" + LocalDate.now().getYear() % 100;
-        long correlativo = cotizacionRepository.countByCodigoStartingWith(prefijo) + 1;
-        return prefijo + String.format("%05d", correlativo);
+        LocalDate hoy = LocalDate.now();
+        String yy = String.format("%02d", hoy.getYear() % 100);
+        String mm = String.format("%02d", hoy.getMonthValue());
+        String prefijoAnual = "COI" + yy; // cuenta todo el año, sin importar el mes
+
+        long correlativo = cotizacionRepository.countByCodigoStartingWith(prefijoAnual) + 1;
+        return "COI" + yy + mm + String.format("%02d", correlativo);
     }
 
     private Cotizacion buscarEntidadPorId(Long id) {

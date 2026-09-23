@@ -9,7 +9,6 @@ import com.kevin.backend.repository.ExpedienteRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.Year;
 import java.util.List;
 
 @Service
@@ -54,9 +53,13 @@ public class ExpedienteService {
     }
 
     private String generarNumero() {
-        String prefijo = "E" + String.valueOf(Year.now().getValue()).substring(2);
-        long correlativo = expedienteRepository.countByNumeroStartingWith(prefijo) + 1;
-        return prefijo + String.format("%05d", correlativo);
+        LocalDate hoy = LocalDate.now();
+        String yy = String.format("%02d", hoy.getYear() % 100);
+        String mm = String.format("%02d", hoy.getMonthValue());
+        String prefijoAnual = "E" + yy;
+
+        long correlativo = expedienteRepository.countByNumeroStartingWith(prefijoAnual) + 1;
+        return "E" + yy + mm + String.format("%02d", correlativo);
     }
 
     private ExpedienteDTO toDTO(Expediente exp) {

@@ -80,9 +80,13 @@ public class OrdenDeTrabajoService {
     }
 
     private String generarNumero() {
-        String prefijo = "OT" + LocalDate.now().getYear() % 100;
-        long correlativo = ordenDeTrabajoRepository.countByNumeroStartingWith(prefijo) + 1;
-        return prefijo + String.format("%05d", correlativo);
+        LocalDate hoy = LocalDate.now();
+        String yy = String.format("%02d", hoy.getYear() % 100);
+        String mm = String.format("%02d", hoy.getMonthValue());
+        String prefijoAnual = "OT" + yy;
+
+        long correlativo = ordenDeTrabajoRepository.countByNumeroStartingWith(prefijoAnual) + 1;
+        return "OT" + yy + mm + String.format("%02d", correlativo);
     }
 
     private OrdenDeTrabajo buscarEntidadPorId(Long id) {

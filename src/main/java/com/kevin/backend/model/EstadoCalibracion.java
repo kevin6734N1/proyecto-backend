@@ -1,9 +1,8 @@
 package com.kevin.backend.model;
 
-public enum EstadoOrdenTrabajo {
-    PENDIENTE,
+public enum EstadoCalibracion {
+    PROGRAMADA,
     EN_PROCESO,
-    EN_ESPERA_CLIENTE,
     COMPLETADA,
     CANCELADA
 }
