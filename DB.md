@@ -276,3 +276,7 @@ erDiagram
 | H6 | Revisiones simultáneas sobre la misma calibración permitidas; las `PENDIENTE` no reclamadas quedan huérfanas | filas sin uso | 🟡 BAJA |
 
 > Los fixes sugeridos de cada hallazgo están detallados en `VALIDACION.md` §3. Mientras no se parcheen, el frontend debe compensar (ver `API.md` §10.2).
+
+## Archivo firmado fuera de H2 (2026-09-24)
+
+`informes_tecnicos.pdf_cargado` y `fecha_carga_pdf` son metadatos; el PDF firmado real está en `./data/pdf-firmados/{id}.pdf`. Se guarda una sola vez al subirlo por API, y aprobar el informe exige que ese archivo exista. Respaldar la carpeta junto con `gesmin.mv.db`; restaurar solo la base dejaría informes sin su archivo. Cotizaciones, órdenes e informes sin firma se generan dinámicamente desde los datos y no ocupan almacenamiento persistente.

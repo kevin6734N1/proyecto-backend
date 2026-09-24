@@ -231,11 +231,13 @@ PUT /api/calibraciones/1/mediciones
 | Método | Ruta | Body |
 |--------|------|------|
 | GET | `/` y `/{id}` | |
-| PATCH | `/{id}/pdf-cargado` | Sin body. `pdfCargado=true`, `fechaCargaPdf=hoy`, estado → `PDF_CARGADO` |
-| PATCH | `/{id}/estado?estado=APROBADO` | `GENERADO` (nace) · `PDF_CARGADO` · `APROBADO` · `ENVIADO` |
+| POST | `/{id}/pdf-firmado` | `multipart/form-data`, campo `archivo` con PDF real (máx. 10 MB). Cambia a `PDF_CARGADO`. |
+| GET | `/{id}/pdf` | Descarga vista previa generada, sin firma. |
+| GET | `/{id}/pdf-firmado` | Descarga el archivo original solo desde `APROBADO`. |
+| PATCH | `/{id}/estado?estado=APROBADO` | Solo `PDF_CARGADO → APROBADO → ENVIADO`. |
 
 > 💡 Al marcar `ENVIADO` el backend llena `fechaEnvio` con la fecha actual.
-> ⚠️ **Placeholder:** el manejo del PDF firmado está pendiente de definición con Gesmin. Hoy solo se marca un booleano — no subas archivos todavía.
+> El antiguo `PATCH /{id}/pdf-cargado` fue retirado: el booleano se actualiza únicamente tras guardar un PDF válido. El backend no verifica criptográficamente la firma.
 
 ---
 
@@ -308,7 +310,7 @@ curl -s -X POST $B/revisiones-tecnicas -H "Content-Type: application/json" \
 curl -s -X PATCH "$B/revisiones-tecnicas/1/resultado?resultado=CONFORME"
 
 # 7. Ciclo del informe
-curl -s -X PATCH $B/informes-tecnicos/1/pdf-cargado
+curl -s -F "archivo=@informe-firmado.pdf;type=application/pdf" $B/informes-tecnicos/1/pdf-firmado
 curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=APROBADO"
 curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 ```
@@ -317,7 +319,7 @@ curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 
 ## 9. Pendientes / placeholders (para no tropezar)
 
-1. **PDF firmado del informe**: hoy es solo `pdfCargado: boolean` + fecha. Si Gesmin confirma subida de archivos, habrá un endpoint nuevo (multipart). No construyas UI de subida aún.
+1. **Formato de certificado de calibración**: por ahora el PDF generado usa el Informe Técnico compartido como referencia visual provisional. Falta el ejemplo del certificado específico.
 2. **Sin usuarios ni login**: `tecnico`, `revisor`, `ejecutor` son texto libre. Cuando exista el módulo Usuario/Permisos, estos campos pasarán a referencias y probablemente habrá auth (JWT/session).
 3. **Errores 400 vs 404**: todo error de negocio o "no encontrado" llega como 400 con `{"mensaje": "..."}`. Centraliza el manejo en tu fetch/axios interceptor.
 4. ~~**Datos volátiles**: H2 en memoria.~~ **Resuelto (2026-09-23):** la BD ahora está en archivo (`jdbc:h2:file:./data/gesmin`) y persiste entre reinicios. Verificado con reinicios reales del server en `VALIDACION.md`.
@@ -338,7 +340,7 @@ curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 | Revisión solo con calibración `COMPLETADA` (PROGRAMADA y EN_PROCESO bloqueados) | 400 con `mensaje` |
 | `NO_APTO` en evaluación → OT pasa a `EN_ESPERA_CLIENTE` automáticamente | 200, verificar `estado` de la OT |
 | Calibración sobre evaluación `NO_APTO` | 400 con `mensaje` |
-| Error del PDF en informe cuando se envía (`fechaEnvio` se llena sola) | 200 |
+| Informe `APROBADO → ENVIADO` registra `fechaEnvio` | 200 |
 | Correlativos únicos (`COI/OT/IT/E`) garantizados por unique constraint | — |
 | Idempotencia de PATCH con el mismo estado | 200, misma representación |
 
@@ -348,7 +350,7 @@ curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 |---|---|---|---|
 | A | **Re-patchear CONFORME sobre una revisión genera OTRO informe** (duplicado de certificado). No hay guard. | Si el botón "Registrar CONFORME" queda habilitado después de aplicado, cada click = un certificado nuevo. | Deshabilitar el PATCH de resultado cuando `resultado !== 'PENDIENTE'`. Mostrar el resultado como solo-lectura una vez registrado. |
 | B | **Sin guard post-ENVIADO**: una calibración con certificado ya ENVIADO acepta nuevas revisiones CONFORME y genera otro certificado. | Podés permitir "re-certificar" un instrumento sin querer. | Si la calibración ya tiene un informe en estado `ENVIADO`, ocultar/bloquear la creación de nuevas revisiones (consultá `GET /informes-tecnicos` y cruzá por `revisionTecnicaId` → revisión → `calibracionId`). |
-| C | **Los PATCH de estado aceptan cualquier transición** (ej. informe `GENERADO → ENVIADO` directo sin PDF ni aprobación; también estados regresivos). El backend no impone el orden `GENERADO → PDF_CARGADO → APROBADO → ENVIADO`. | Si tu UI ofrece todos los estados en un combo, el usuario puede saltarse pasos. | Gestioná las transiciones válidas en el frontend: ofrecé solo el/los próximos estados válidos según el actual, no un combo libre. Secuencia válida de informe: `GENERADO → PDF_CARGADO → APROBADO → ENVIADO`. |
+| C | Los PATCH de estado de cotización, OT, calibración y expediente aún permiten saltos o regresiones. **El informe ya exige PDF real → aprobación → envío.** | Un combo libre puede generar estados inconsistentes en los otros módulos. | Ofrecé solo las transiciones que correspondan en cada pantalla. Para el informe usa carga multipart, luego `APROBADO` y después `ENVIADO`. |
 | D | **El cierre de expediente no valida nada**: se puede cerrar con OTs sin completar, evaluaciones `NO_APTO` sin respuesta del cliente, o informes nunca enviados. También se reabre un CERRADO con un PATCH. | El expediente puede quedar "CERRADO" con trabajo pendiente adentro. | Antes de ofrecer el botón "Cerrar expediente", validá del lado del frontend que sus OTs estén `COMPLETADA`/`CANCELADA` y que no queden evaluaciones `PENDIENTE`/`NO_APTO` sin respuesta. Confirmar con Gesmin si hace falta alguna regla real aquí. |
 | E | **Revisiones simultáneas sobre la misma calibración se permiten** (y las `PENDIENTE` no reclamadas quedan huérfanas para siempre). | Dos usuarios podrían crear revisiones en paralelo y una queda sin usar. | Deshabilitá "Nueva revisión" si la calibración ya tiene una revisión con `resultado = PENDIENTE` (`GET /revisiones-tecnicas?calibracionId=X`). |
 
@@ -358,4 +360,32 @@ curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 - Bajo concurrencia real es posible recibir un 400 con **stacktrace de H2** (violación de unique) al generar dos certificados a la vez. Es raro en uso normal, pero si tu interceptor ve un 400 sin `mensaje`, mostrá un error genérico "intente de nuevo" en vez de reventar.
 - No hay `POST /informes-tecnicos`: los informes **solo** nacen automáticamente de una revisión CONFORME (405 si lo intentás).
 
-> Estas reglas (A–E) están pendientes de parche en el backend. Cuando se parcheen, esta sección se actualizará — aviso a Nicolás: no construyas lógica de negocio permanente asumiendo estos huecos, son temporales.
+> A, B, D y E siguen pendientes. C sigue pendiente para cotización, OT, calibración y expediente; el informe ya valida su secuencia.
+
+---
+
+## 11. PDF generados y PDF firmado (2026-09-24)
+
+Los tres reportes se generan al pedirlos. No hay que subir un archivo para cotización u orden. Cada GET responde `application/pdf` con `Content-Disposition: attachment`; en React/axios usa `responseType: "blob"`.
+
+| Documento | Endpoint | Cuándo existe |
+|---|---|---|
+| Cotización preliminar | `GET /api/cotizaciones/{id}/pdf` | Al crear la cotización. |
+| Orden de trabajo | `GET /api/ordenes-trabajo/{id}/pdf` | Al crear la OT desde una cotización aprobada. |
+| Informe técnico sin firma | `GET /api/informes-tecnicos/{id}/pdf` | Tras revisión `CONFORME`, que crea el correlativo IT. |
+| Informe firmado | `GET /api/informes-tecnicos/{id}/pdf-firmado` | Tras cargar el archivo y pasar a `APROBADO`. |
+
+Para cargar el firmado: `POST /api/informes-tecnicos/{id}/pdf-firmado` con `multipart/form-data`, nombre de campo **`archivo`**, archivo PDF de 1 byte a 10 MB. Se valida que sea un PDF legible y no se permite reemplazarlo. La respuesta es `InformeTecnicoDTO` con `pdfCargado=true`, `fechaCargaPdf` y estado `PDF_CARGADO`. El archivo se guarda en `./data/pdf-firmados/{id}.pdf`; hay que respaldar esa carpeta junto con H2. El booleano histórico por sí solo ya no sirve para aprobar: el archivo debe existir.
+
+Después se usa `PATCH /api/informes-tecnicos/{id}/estado?estado=APROBADO` y, cuando se confirme la entrega al cliente, `PATCH ...?estado=ENVIADO` registra la fecha actual. La API **no envía correos** todavía; ese último PATCH es un registro manual de la fecha de envío. Los intentos de saltar estados devuelven 400 con `mensaje`.
+
+**Límites de los modelos actuales:** la cotización se rotula `BORRADOR` porque aún no guarda moneda, IGV, forma de pago, asesor ni cuentas bancarias. Su PDF muestra el `montoTotal` actualmente guardado, sin inventar impuestos ni divisa. La OT no almacena cantidad o producto por cada actividad ni firmas reales. El Informe Técnico se genera con datos de calibración, evaluación y revisión, pero todavía no incluye todos los campos narrativos del formato legado; el certificado de calibración propio de Gesmin sigue pendiente de recibir. Estos PDF son funcionales para descarga y revisión, pero aún no son reproducciones finales de los formatos comerciales.
+
+```bash
+curl -o cotizacion.pdf "$B/cotizaciones/1/pdf"
+curl -o orden.pdf "$B/ordenes-trabajo/1/pdf"
+curl -o informe-sin-firma.pdf "$B/informes-tecnicos/1/pdf"
+curl -F "archivo=@informe-firmado.pdf;type=application/pdf" "$B/informes-tecnicos/1/pdf-firmado"
+curl -X PATCH "$B/informes-tecnicos/1/estado?estado=APROBADO"
+curl -o informe-firmado.pdf "$B/informes-tecnicos/1/pdf-firmado"
+```

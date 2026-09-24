@@ -146,3 +146,24 @@ bash validation/summary.sh
 - **Compila y testea limpio** (`compile` + `test` BUILD SUCCESS).
 - **2 hallazgos de severidad ALTA** (duplicación de informes al re-parchear CONFORME; ausencia de guard post-ENVIADO), **2 MEDIOS** (correlativo no thread-safe; sin máquina de estados en PATCH), **2 BAJOS** y **2 informativos**.
 - **La persistencia en archivo funciona**: 3 arranques del server preservaron el estado y el correlativo continuó donde iba.
+
+---
+
+## Actualización 2026-09-24 — tres PDF y archivo firmado
+
+La validación de 2026-09-23 anterior es histórica. El endpoint marcador `PATCH /api/informes-tecnicos/{id}/pdf-cargado` fue retirado; ahora un archivo real se carga por `POST /api/informes-tecnicos/{id}/pdf-firmado`.
+
+| Comprobación | Resultado |
+|---|---|
+| Cotización, orden e informe | Se generan como tres PDF distintos con cabeceras, correlativos y datos de sus registros. Los tres se abrieron con PDFBox y sus campos clave se extrajeron correctamente. |
+| Paginación | Cotización extensa se divide en varias páginas y conserva el texto final. |
+| Revisión visual | Se renderizaron las tres páginas de prueba y se verificaron encabezados, secciones, firmas de la OT, pie y ausencia de texto cortado. |
+| Archivo firmado inválido | Rechazado; no crea archivo ni cambia el estado. |
+| Archivo firmado válido | Se guarda sin sobrescribir, actualiza `pdfCargado` y pasa a `PDF_CARGADO`. |
+| Descarga para Ventas | Bloqueada antes de `APROBADO`; tras aprobación devuelve exactamente los bytes cargados. |
+| Estados del informe | `GENERADO → ENVIADO` rechazado; `PDF_CARGADO → APROBADO → ENVIADO` aceptado. La aprobación comprueba la existencia física del archivo, incluso si un registro viejo tenía `pdfCargado=true`. |
+| Pruebas automatizadas | `./mvnw -q -Dspring.datasource.url=jdbc:h2:mem:gesminpdf test`: 5 tests, 0 fallos. H2 en memoria evita el lock de la BD de desarrollo. |
+
+**Alcance:** la cotización es un borrador descargable porque el modelo no tiene moneda, IGV, forma de pago, asesor ni cuentas bancarias. La orden carece de cantidad/producto por actividad y de firmas reales. El Informe Técnico usa el ejemplo entregado como referencia provisional para el documento final; aún falta el formato específico de Certificado de Calibración. El backend almacena el PDF que el usuario afirma firmado, pero no verifica firmas criptográficas y no envía correos. No se hicieron pruebas E2E HTTP contra la base persistida en esta actualización.
+
+**Persistencia:** el PDF firmado se guarda en `./data/pdf-firmados/{id}.pdf`, fuera de Git. Un respaldo debe incluir tanto `./data/gesmin.mv.db` como `./data/pdf-firmados/`. Los informes de la validación previa marcados con el antiguo booleano no tendrán archivo real y no podrán aprobarse hasta resolverlos de forma explícita.

@@ -27,10 +27,6 @@ public class InformeTecnicoController {
         return informeTecnicoService.obtenerPorId(id);
     }
 
-    @PatchMapping("/{id}/pdf-cargado")
-    public InformeTecnicoDTO marcarPdfCargado(@PathVariable Long id) {
-        return informeTecnicoService.marcarPdfCargado(id);
-    }
 
     @PatchMapping("/{id}/estado")
     public InformeTecnicoDTO actualizarEstado(@PathVariable Long id, @RequestParam EstadoInforme estado) {

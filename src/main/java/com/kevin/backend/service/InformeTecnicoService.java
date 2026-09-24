@@ -16,9 +16,12 @@ import java.util.List;
 public class InformeTecnicoService {
 
     private final InformeTecnicoRepository informeTecnicoRepository;
+    private final InformeFirmadoService firmados;
 
-    public InformeTecnicoService(InformeTecnicoRepository informeTecnicoRepository) {
+    public InformeTecnicoService(InformeTecnicoRepository informeTecnicoRepository,
+                                 InformeFirmadoService firmados) {
         this.informeTecnicoRepository = informeTecnicoRepository;
+        this.firmados = firmados;
     }
 
     public List<InformeTecnicoDTO> listar() {
@@ -40,21 +43,26 @@ public class InformeTecnicoService {
         return informeTecnicoRepository.save(informe);
     }
 
-    // --- PLACEHOLDER: se ajustará cuando Gesmin confirme cómo manejar el PDF firmado ---
-    @Transactional
-    public InformeTecnicoDTO marcarPdfCargado(Long id) {
-        InformeTecnico informe = buscarEntidadPorId(id);
-        informe.setPdfCargado(true);
-        informe.setFechaCargaPdf(LocalDate.now());
-        informe.setEstado(EstadoInforme.PDF_CARGADO);
-        return toDTO(informeTecnicoRepository.save(informe));
-    }
-
     @Transactional
     public InformeTecnicoDTO actualizarEstado(Long id, EstadoInforme nuevoEstado) {
         InformeTecnico informe = buscarEntidadPorId(id);
+        if (informe.getEstado() == nuevoEstado) {
+            return toDTO(informe);
+        }
+        boolean aprobar = informe.getEstado() == EstadoInforme.PDF_CARGADO
+                && nuevoEstado == EstadoInforme.APROBADO;
+        boolean enviar = informe.getEstado() == EstadoInforme.APROBADO
+                && nuevoEstado == EstadoInforme.ENVIADO;
+        if (!aprobar && !enviar) {
+            throw new IllegalArgumentException("Transición de informe no permitida: "
+                    + informe.getEstado() + " -> " + nuevoEstado
+                    + ". Primero cargue el PDF firmado, luego apruebe y finalmente marque ENVIADO.");
+        }
+        if (aprobar && (!Boolean.TRUE.equals(informe.getPdfCargado()) || !firmados.existe(id))) {
+            throw new IllegalArgumentException("No se puede aprobar: falta el archivo PDF firmado.");
+        }
         informe.setEstado(nuevoEstado);
-        if (nuevoEstado == EstadoInforme.ENVIADO) {
+        if (enviar) {
             informe.setFechaEnvio(LocalDate.now());
         }
         return toDTO(informeTecnicoRepository.save(informe));
