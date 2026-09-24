@@ -226,7 +226,7 @@ PUT /api/calibraciones/1/mediciones
 > - Solo se puede crear una revisión si la calibración está **`COMPLETADA`**.
 > - **`NO_CONFORME`** → la calibración vuelve a `EN_PROCESO` (loop de corrección: se registran mediciones de nuevo → `COMPLETADA` → nueva revisión). La misma revisión NO se reusa: se crea otra.
 > - **`CONFORME`** → se genera **automáticamente** un `InformeTecnico` con correlativo.
-> - Repetir `CONFORME` sobre la misma revisión no genera otro informe. Una calibración que ya tiene un informe no admite otra revisión ni otro resultado `CONFORME`; la reemisión aún no está definida.
+> - Repetir el mismo `resultado` y las mismas `observaciones` es idempotente. Cambiar observaciones de un `CONFORME` anula su informe vigente y genera uno nuevo. Para corregir un resultado ya certificado: registrar `NO_CONFORME` con observación, completar de nuevo la calibración y registrar `CONFORME`; el informe anterior queda `ANULADO` y se crea otro con correlativo distinto.
 
 ### Informes técnicos (certificados) — `/api/informes-tecnicos`
 | Método | Ruta | Body |
@@ -235,7 +235,7 @@ PUT /api/calibraciones/1/mediciones
 | POST | `/{id}/pdf-firmado` | `multipart/form-data`, campo `archivo` con PDF real (máx. 10 MB). Cambia a `PDF_CARGADO`. |
 | GET | `/{id}/pdf` | Descarga vista previa generada, sin firma. |
 | GET | `/{id}/pdf-firmado` | Descarga el archivo original solo desde `APROBADO`. |
-| PATCH | `/{id}/estado?estado=APROBADO` | Solo `PDF_CARGADO → APROBADO → ENVIADO`. |
+| PATCH | `/{id}/estado?estado=APROBADO` | Solo `PDF_CARGADO → APROBADO → ENVIADO`; `ANULADO` no puede reactivarse. |
 
 > 💡 Al marcar `ENVIADO` el backend llena `fechaEnvio` con la fecha actual.
 > El antiguo `PATCH /{id}/pdf-cargado` fue retirado: el booleano se actualiza únicamente tras guardar un PDF válido. El backend no verifica criptográficamente la firma.
@@ -262,7 +262,7 @@ Cliente ──> Instrumento
         RevisionTecnica ── NO_CONFORME ────────────────────────────────────┘
               │ CONFORME
               ▼
-        InformeTecnico (GENERADO → PDF_CARGADO → APROBADO → ENVIADO)
+        InformeTecnico (GENERADO → PDF_CARGADO → APROBADO → ENVIADO; cualquiera de esos estados → ANULADO al reabrir su revisión)
               
         Expediente ──> PATCH /{id}/estado?estado=CERRADO  (cierre final)
 ```
@@ -322,7 +322,7 @@ curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 
 1. **Formato de certificado de calibración**: por ahora el PDF generado usa el Informe Técnico compartido como referencia visual provisional. Falta el ejemplo del certificado específico.
 2. **Sin usuarios ni login**: `tecnico`, `revisor`, `ejecutor` son texto libre. Cuando exista el módulo Usuario/Permisos, estos campos pasarán a referencias y probablemente habrá auth (JWT/session).
-3. **Errores 400 vs 404**: todo error de negocio o "no encontrado" llega como 400 con `{"mensaje": "..."}`. Centraliza el manejo en tu fetch/axios interceptor.
+3. **Errores 400 vs 404**: errores de negocio o "no encontrado" llegan como 400 con `{"mensaje": "..."}`; un agotamiento de reintentos de correlativo llega como 409 con el mismo campo. Centraliza el manejo en tu fetch/axios interceptor.
 4. ~~**Datos volátiles**: H2 en memoria.~~ **Resuelto (2026-09-23):** la BD ahora está en archivo (`jdbc:h2:file:./data/gesmin`) y persiste entre reinicios. Verificado con reinicios reales del server en `VALIDACION.md`.
 5. **CORS fijo a puerto 5175**: coordina con Kevin si tu frontend corre en otro puerto/origen.
 
@@ -342,14 +342,14 @@ curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 | `NO_APTO` en evaluación → OT pasa a `EN_ESPERA_CLIENTE` automáticamente | 200, verificar `estado` de la OT |
 | Calibración sobre evaluación `NO_APTO` | 400 con `mensaje` |
 | Informe `APROBADO → ENVIADO` registra `fechaEnvio` | 200 |
-| Correlativos `COI/OT/IT/E` | Reintento transaccional ante colisión; si se agotan 3 intentos, 400 con `mensaje`. |
-| `PATCH` repetido `CONFORME` en la misma revisión | 200, sin generar otro informe ni cambiar observaciones. |
-| Nueva revisión tras un informe de la calibración | 400 con `mensaje`, incluso si el informe sigue `GENERADO`. |
+| Correlativos `COI/OT/IT/E` | Contador anual bloqueado en BD por prefijo; la primera creación concurrente puede reintentarse. Si se agotan 3 intentos por contención, 409 con `mensaje`. |
+| `PATCH` repetido con mismo resultado y observaciones | 200, sin generar otro informe. Si cambian las observaciones de `CONFORME`, se anula el IT anterior y se reemite. |
+| Nueva revisión tras un informe vigente | 400 con `mensaje`; vuelve a permitirse tras anular el informe mediante reapertura de la revisión propietaria. |
 | Idempotencia de PATCH con el mismo estado | 200, misma representación |
 
 ### 10.2 Reglas todavía pendientes
 
-H1 y H2 quedaron resueltos en el backend. La UI puede seguir deshabilitando botones ya usados para dar claridad, pero no necesita cruzar informes y revisiones para impedir la duplicación.
+El backend compara resultado y observaciones, y anula el certificado vigente antes de reemitir. La UI debe mostrar el historial `ANULADO` y el nuevo informe según el flujo de la sección 12.
 
 | # | Hueco | Riesgo en la UI | Workaround sugerido mientras tanto |
 |---|---|---|---|
@@ -360,10 +360,10 @@ H1 y H2 quedaron resueltos en el backend. La UI puede seguir deshabilitando boto
 ### 10.3 Errores: recordatorios verificados
 
 - "No encontrado" sigue devolviendo **400 (no 404)** con `{"mensaje": "..."}` — verificado en clientes, calibraciones e informes.
-- Los correlativos se reintentan hasta 3 veces en transacciones separadas. Si se agotan los intentos, se devuelve 400 con `mensaje` legible.
+- El contador de correlativos se bloquea por prefijo en la BD. Si se agotan 3 reintentos por contención, se devuelve **409** con `mensaje` legible.
 - No hay `POST /informes-tecnicos`: los informes **solo** nacen automáticamente de una revisión CONFORME (405 si lo intentás).
 
-> C, D y E siguen pendientes. H1, H2 y H3 ya tienen guardas y pruebas; C sigue pendiente para cotización, OT, calibración y expediente.
+> C, D y E siguen pendientes; la auditoría y su respuesta reproducible están en `VALIDACION.md`.
 
 ---
 
@@ -395,8 +395,15 @@ curl -o informe-firmado.pdf "$B/informes-tecnicos/1/pdf-firmado"
 
 ---
 
-## 12. H1, H2 y H3 corregidos (2026-09-24)
+## 12. Corrección posterior a la auditoría FreeBuff (2026-09-24)
 
-- Repetir `PATCH /api/revisiones-tecnicas/{id}/resultado?resultado=CONFORME` devuelve la revisión existente sin generar otro IT ni cambiar sus observaciones. Cambiar un resultado final por otro devuelve 400.
-- Crear una revisión o registrar `CONFORME` para otra revisión de una calibración que ya tiene cualquier informe devuelve 400. Esto aplica desde `GENERADO`; no hay flujo de reemisión definido. El ciclo `NO_CONFORME → EN_PROCESO → nueva revisión` continúa disponible.
-- Si coinciden dos operaciones que asignan códigos `E`, `COI`, `OT` o `IT`, se reintenta toda la creación en una transacción nueva hasta 3 veces. La revisión y su informe se confirman o revierten juntos; una colisión no debe dejar la revisión `CONFORME` sin informe.
+La afirmación previa de H2/H3 en esta sección quedó refutada por la auditoría. El flujo actual para una revisión certificada es:
+
+1. `PATCH /api/revisiones-tecnicas/{id}/resultado?resultado=NO_CONFORME&observaciones=Falla-confirmada`: anula el informe vigente de **esa revisión**, registra `fechaAnulacion` y `motivoAnulacion`, y pasa la calibración a `EN_PROCESO`. No se permite usar otra revisión pendiente para anular el certificado.
+2. Tras corregir el trabajo, `PATCH /api/calibraciones/{id}/estado?estado=COMPLETADA`.
+3. `PATCH /api/revisiones-tecnicas/{id}/resultado?resultado=CONFORME&observaciones=Corregida`: genera otro IT. También se puede crear una revisión nueva una vez anulado el informe previo.
+4. El informe `ANULADO` permanece en `GET /api/informes-tecnicos` para trazabilidad, pero no se puede aprobar ni descargar su PDF, firmado o sin firma. El DTO incluye `fechaAnulacion` y `motivoAnulacion`. Si ya se había enviado, la comunicación de anulación al cliente sigue siendo manual.
+
+Un PATCH con el mismo resultado y observaciones conserva el estado sin emitir otro IT. Un `CONFORME` con observaciones distintas anula el informe anterior y emite uno nuevo. `ANULADO` no vuelve a estar vigente.
+
+Los códigos `E`, `COI`, `OT` e `IT` se asignan mediante `correlativos_contadores`: una fila por tipo/año bloqueada durante la transacción que crea el documento. Al migrar una base existente, el primer uso del prefijo se inicializa desde los documentos históricos. El guard de unicidad del documento y el retry de 3 intentos siguen como respaldo ante carreras de inicialización. Si se agota ese retry, la respuesta es **409** `{"mensaje":"No se pudo asignar un correlativo único tras 3 intentos."}`.

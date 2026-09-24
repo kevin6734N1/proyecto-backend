@@ -34,4 +34,9 @@ public class InformeTecnico {
     private LocalDate fechaCargaPdf;
 
     private LocalDate fechaEnvio; // se llena al "descargar/enviar por correo"
+
+    private LocalDate fechaAnulacion;
+
+    @Column(columnDefinition = "TEXT")
+    private String motivoAnulacion;
 }

@@ -96,6 +96,9 @@ public class InformeFirmadoService {
         if (!Boolean.TRUE.equals(informe.getPdfCargado())) {
             throw new IllegalArgumentException("Este informe todavía no tiene PDF firmado.");
         }
+        if (informe.getEstado() == EstadoInforme.ANULADO) {
+            throw new IllegalArgumentException("El informe fue anulado y su PDF firmado no está disponible.");
+        }
         if (informe.getEstado() != EstadoInforme.APROBADO && informe.getEstado() != EstadoInforme.ENVIADO) {
             throw new IllegalArgumentException("El PDF firmado estará disponible para Ventas después de la aprobación técnica.");
         }
@@ -117,7 +120,8 @@ public class InformeFirmadoService {
                 informe.getRevisionTecnica().getId(),
                 instrumento.getMarca() + " " + instrumento.getModelo() + " - Serie " + instrumento.getSerie(),
                 informe.getFechaEmision(), informe.getEstado(), informe.getPdfCargado(),
-                informe.getFechaCargaPdf(), informe.getFechaEnvio());
+                informe.getFechaCargaPdf(), informe.getFechaEnvio(),
+                informe.getFechaAnulacion(), informe.getMotivoAnulacion());
     }
 
     private InformeTecnico buscar(Long id) {

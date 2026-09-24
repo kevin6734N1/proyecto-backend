@@ -1,5 +1,6 @@
 package com.kevin.backend.service;
 
+import com.kevin.backend.model.EstadoInforme;
 import com.kevin.backend.model.*;
 import com.kevin.backend.repository.CotizacionRepository;
 import com.kevin.backend.repository.InformeTecnicoRepository;
@@ -125,6 +126,9 @@ public class DocumentoPdfService {
     public byte[] informe(Long id) {
         InformeTecnico i = informes.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Informe técnico no encontrado con id " + id));
+        if (i.getEstado() == EstadoInforme.ANULADO) {
+            throw new IllegalArgumentException("El informe fue anulado y no está disponible para descarga.");
+        }
         RevisionTecnica r = i.getRevisionTecnica();
         Calibracion cal = r.getCalibracion();
         EvaluacionAptitud ev = cal.getEvaluacionAptitud();

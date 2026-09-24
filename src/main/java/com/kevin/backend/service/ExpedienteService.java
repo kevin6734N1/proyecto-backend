@@ -17,12 +17,14 @@ public class ExpedienteService {
     private final ExpedienteRepository expedienteRepository;
     private final ClienteRepository clienteRepository;
     private final CorrelativoRetry correlativos;
+    private final CorrelativoService contador;
 
     public ExpedienteService(ExpedienteRepository expedienteRepository, ClienteRepository clienteRepository,
-                             CorrelativoRetry correlativos) {
+                             CorrelativoRetry correlativos, CorrelativoService contador) {
         this.expedienteRepository = expedienteRepository;
         this.clienteRepository = clienteRepository;
         this.correlativos = correlativos;
+        this.contador = contador;
     }
 
     public List<ExpedienteDTO> listar() {
@@ -60,13 +62,8 @@ public class ExpedienteService {
     }
 
     private String generarNumero() {
-        LocalDate hoy = LocalDate.now();
-        String yy = String.format("%02d", hoy.getYear() % 100);
-        String mm = String.format("%02d", hoy.getMonthValue());
-        String prefijoAnual = "E" + yy;
-
-        long correlativo = expedienteRepository.countByNumeroStartingWith(prefijoAnual) + 1;
-        return "E" + yy + mm + String.format("%02d", correlativo);
+        String yy = String.format("%02d", LocalDate.now().getYear() % 100);
+        return contador.siguiente("E", () -> expedienteRepository.countByNumeroStartingWith("E" + yy));
     }
 
     private ExpedienteDTO toDTO(Expediente exp) {

@@ -93,6 +93,9 @@ class DocumentoPdfServiceTest {
             assertThrows(IllegalArgumentException.class, () -> firmados.descargar(3L));
             informe.setEstado(EstadoInforme.APROBADO);
             assertArrayEquals(original, firmados.descargar(3L));
+            informe.setEstado(EstadoInforme.ANULADO);
+            assertThrows(IllegalArgumentException.class, () -> firmados.descargar(3L));
+            informe.setEstado(EstadoInforme.APROBADO);
             assertThrows(IllegalArgumentException.class, () -> firmados.cargar(3L, valido));
         } catch (java.io.IOException e) {
             fail(e);
@@ -107,7 +110,7 @@ class DocumentoPdfServiceTest {
         when(repositorio.save(any(InformeTecnico.class))).thenAnswer(call -> call.getArgument(0));
         InformeFirmadoService firmados = mock(InformeFirmadoService.class);
         when(firmados.existe(3L)).thenReturn(false, true);
-        InformeTecnicoService servicio = new InformeTecnicoService(repositorio, firmados);
+        InformeTecnicoService servicio = new InformeTecnicoService(repositorio, firmados, mock(CorrelativoService.class));
 
         assertThrows(IllegalArgumentException.class,
                 () -> servicio.actualizarEstado(3L, EstadoInforme.ENVIADO));

@@ -23,6 +23,7 @@ public class CotizacionService {
     private final ProductoRepository productoRepository;
     private final ServicioRepository servicioRepository;
     private final CorrelativoRetry correlativos;
+    private final CorrelativoService contador;
 
     public CotizacionService(CotizacionRepository cotizacionRepository,
                               ClienteRepository clienteRepository,
@@ -30,7 +31,7 @@ public class CotizacionService {
                               ExpedienteRepository expedienteRepository,
                               ProductoRepository productoRepository,
                               ServicioRepository servicioRepository,
-                              CorrelativoRetry correlativos) {
+                              CorrelativoRetry correlativos, CorrelativoService contador) {
         this.cotizacionRepository = cotizacionRepository;
         this.clienteRepository = clienteRepository;
         this.contactoRepository = contactoRepository;
@@ -38,6 +39,7 @@ public class CotizacionService {
         this.productoRepository = productoRepository;
         this.servicioRepository = servicioRepository;
         this.correlativos = correlativos;
+        this.contador = contador;
     }
 
     public List<CotizacionDTO> listar() {
@@ -153,13 +155,8 @@ public class CotizacionService {
     }
 
     private String generarCodigo() {
-        LocalDate hoy = LocalDate.now();
-        String yy = String.format("%02d", hoy.getYear() % 100);
-        String mm = String.format("%02d", hoy.getMonthValue());
-        String prefijoAnual = "COI" + yy; // cuenta todo el año, sin importar el mes
-
-        long correlativo = cotizacionRepository.countByCodigoStartingWith(prefijoAnual) + 1;
-        return "COI" + yy + mm + String.format("%02d", correlativo);
+        String yy = String.format("%02d", LocalDate.now().getYear() % 100);
+        return contador.siguiente("COI", () -> cotizacionRepository.countByCodigoStartingWith("COI" + yy));
     }
 
     private Cotizacion buscarEntidadPorId(Long id) {

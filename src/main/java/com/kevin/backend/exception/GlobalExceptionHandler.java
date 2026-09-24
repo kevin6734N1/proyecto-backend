@@ -1,6 +1,7 @@
 package com.kevin.backend.exception;
 
 import org.springframework.http.HttpStatus;
+import com.kevin.backend.exception.CorrelativoAgotadoException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -18,6 +19,12 @@ public class GlobalExceptionHandler {
         ex.getBindingResult().getFieldErrors()
                 .forEach(error -> errores.put(error.getField(), error.getDefaultMessage()));
         return ResponseEntity.badRequest().body(errores);
+    }
+
+    @ExceptionHandler(CorrelativoAgotadoException.class)
+    public ResponseEntity<Map<String, String>> handleCorrelativo(CorrelativoAgotadoException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("mensaje", ex.getMessage()));
     }
 
     @ExceptionHandler(RuntimeException.class)

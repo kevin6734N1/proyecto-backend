@@ -49,7 +49,7 @@ class HallazgosConcurrenciaTest {
 
         revisionService.registrarResultado(primera.id(), ResultadoRevision.CONFORME, "Conforme");
         assertEquals(antes + 1, informes.count());
-        revisionService.registrarResultado(primera.id(), ResultadoRevision.CONFORME, "Reintento");
+        revisionService.registrarResultado(primera.id(), ResultadoRevision.CONFORME, "Conforme");
         assertEquals(antes + 1, informes.count());
         assertTrue(informes.existsByRevisionTecnicaId(primera.id()));
 

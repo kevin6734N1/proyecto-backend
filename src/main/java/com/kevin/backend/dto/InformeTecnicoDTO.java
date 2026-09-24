@@ -16,5 +16,7 @@ public record InformeTecnicoDTO(
 
     Boolean pdfCargado,
     LocalDate fechaCargaPdf,
-    LocalDate fechaEnvio
+    LocalDate fechaEnvio,
+    LocalDate fechaAnulacion,
+    String motivoAnulacion
 ) {}

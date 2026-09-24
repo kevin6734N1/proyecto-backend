@@ -275,7 +275,7 @@ erDiagram
 | H5 | Cierre de expediente sin validación (OTs incompletas, evaluaciones sin responder, informes sin enviar) + expediente CERRADO reabrible por PATCH | expedientes cerrados con pendientes | 🟡 BAJA |
 | H6 | Revisiones simultáneas sobre la misma calibración permitidas; las `PENDIENTE` no reclamadas quedan huérfanas | filas sin uso | 🟡 BAJA |
 
-> Los fixes sugeridos de cada hallazgo están detallados en `VALIDACION.md` §3. Mientras no se parcheen, el frontend debe compensar (ver `API.md` §10.2).
+> Los fixes sugeridos de cada hallazgo están detallados en `VALIDACION.md` `3. Mientras no se parcheen, el frontend debe compensar (ver `API.md` `10.2).
 
 ## Archivo firmado fuera de H2 (2026-09-24)
 
@@ -284,3 +284,14 @@ erDiagram
 ## Estado actualizado de H1-H3 (2026-09-24)
 
 H1 y H2 se controlan en servicios y repositorios sin una nueva restricción de unicidad sobre `revision_tecnica_id`, porque la base de validación previa ya contiene duplicados históricos y `ddl-auto=update` no podría crear esa restricción sin depuración de datos. Se usan bloqueos pesimistas por calibración y comprobaciones de existencia; cualquier informe existente impide otra emisión para esa calibración. H3 reintenta la **operación completa** en transacciones nuevas para los cuatro correlativos. Las filas históricas duplicadas no se borraron ni se modificaron.
+
+## Respuesta a FreeBuff (2026-09-24)
+
+La descripción anterior de H1-H3 es histórica y fue refutada parcialmente en `VALIDACION.md`. El esquema actual agrega `correlativos_contadores(prefijo PRIMARY KEY, ultimo)`. La transacción bloquea la fila anual `E26`/`COI26`/`OT26`/`IT26` hasta confirmar el documento; el contador y su documento se revierten juntos. En un prefijo nuevo, el contador se inicializa con el número de documentos históricos del mismo tipo/año, y el retry cubre la carrera de inserción inicial. No se migraron ni borraron filas previas.
+
+`informes_tecnicos` agrega `fecha_anulacion` y `motivo_anulacion`, además del estado `ANULADO`. Los informes anulados permanecen en el historial y conservan su correlativo, pero no cuentan como vigentes al validar una nueva emisión. Las filas previas con duplicados históricos no fueron corregidas automáticamente.
+
+
+### Migración del ENUM H2 existente
+
+La base de desarrollo anterior define `INFORMES_TECNICOS.ESTADO` como `ENUM('APROBADO','ENVIADO','GENERADO','PDF_CARGADO')`. `ddl-auto=update` agrega las columnas de anulación, pero no amplía los valores del ENUM. `InformeEstadoSchemaMigration` ejecuta en cada arranque un `ALTER COLUMN` idempotente que incorpora `ANULADO`. Se probó sobre una copia temporal de `data/gesmin.mv.db`; el archivo original no se abrió para escritura.

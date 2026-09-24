@@ -3,6 +3,7 @@ package com.kevin.backend.service;
 import com.kevin.backend.dto.RevisionTecnicaDTO;
 import com.kevin.backend.model.Calibracion;
 import com.kevin.backend.model.EstadoCalibracion;
+import com.kevin.backend.model.EstadoInforme;
 import com.kevin.backend.model.Instrumento;
 import com.kevin.backend.model.ResultadoRevision;
 import com.kevin.backend.model.RevisionTecnica;
@@ -14,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class RevisionTecnicaService {
@@ -56,7 +58,7 @@ public class RevisionTecnicaService {
         }
         // Un informe generado ya representa el resultado conforme de esta calibración.
         // Una reemisión requiere un flujo explícito, no otra revisión sobre el mismo trabajo.
-        if (informeRepository.existsByCalibracionId(calibracion.getId())) {
+        if (informeRepository.existsActivoByCalibracionId(calibracion.getId(), EstadoInforme.ANULADO)) {
             throw new IllegalArgumentException(
                     "No se puede crear otra revisión: esta calibración ya tiene un informe técnico.");
         }
@@ -86,24 +88,48 @@ public class RevisionTecnicaService {
         RevisionTecnica revision = revisionRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new RuntimeException("Revisión técnica no encontrada con id " + id));
 
-        if (revision.getResultado() == resultado) {
-            return toDTO(revision); // PATCH repetido: no cambia observaciones ni crea otro informe.
+        if (resultado == ResultadoRevision.PENDIENTE) {
+            throw new IllegalArgumentException("No se puede volver a PENDIENTE.");
         }
-        if (revision.getResultado() != ResultadoRevision.PENDIENTE || resultado == ResultadoRevision.PENDIENTE) {
-            throw new IllegalArgumentException("El resultado de una revisión solo puede registrarse una vez.");
+        String observacionFinal = observaciones != null ? observaciones : revision.getObservaciones();
+        boolean mismoResultado = revision.getResultado() == resultado;
+        if (mismoResultado && Objects.equals(revision.getObservaciones(), observacionFinal)) {
+            return toDTO(revision);
         }
-        if (calibracion.getEstado() != EstadoCalibracion.COMPLETADA) {
+
+        // Otra revisión pendiente no puede invalidar un certificado emitido por un revisor distinto.
+        boolean informeAjeno = informeRepository
+                .findActivosByCalibracionId(calibracionId, EstadoInforme.ANULADO).stream()
+                .anyMatch(i -> !i.getRevisionTecnica().getId().equals(id));
+        if (informeAjeno) {
+            throw new IllegalArgumentException(
+                    "Hay un informe vigente de otra revisión; primero debe resolverse esa revisión.");
+        }
+
+        if (resultado == ResultadoRevision.CONFORME
+                && calibracion.getEstado() != EstadoCalibracion.COMPLETADA) {
+            throw new IllegalArgumentException("La calibración debe estar COMPLETADA para certificar.");
+        }
+        if (revision.getResultado() == ResultadoRevision.PENDIENTE
+                && calibracion.getEstado() != EstadoCalibracion.COMPLETADA) {
             throw new IllegalArgumentException("La calibración debe estar COMPLETADA para registrar la revisión.");
         }
-        if (resultado == ResultadoRevision.CONFORME
-                && informeRepository.existsByCalibracionId(calibracionId)) {
-            throw new IllegalArgumentException(
-                    "Esta calibración ya tiene un informe técnico; no se puede emitir otro.");
+        if (revision.getResultado() == ResultadoRevision.CONFORME
+                && resultado == ResultadoRevision.NO_CONFORME
+                && (observaciones == null || observaciones.isBlank())) {
+            throw new IllegalArgumentException("Indique la observación que motiva la reapertura.");
+        }
+
+        if (revision.getResultado() == ResultadoRevision.CONFORME) {
+            String motivo = resultado == ResultadoRevision.NO_CONFORME
+                    ? "Reapertura por NO_CONFORME: " + observaciones
+                    : "Reemisión por cambio de observaciones: " + observaciones;
+            informeTecnicoService.anularActivos(calibracionId, id, motivo);
         }
 
         revision.setResultado(resultado);
         if (observaciones != null) revision.setObservaciones(observaciones);
-        revisionRepository.save(revision);
+        revisionRepository.saveAndFlush(revision);
 
         if (resultado == ResultadoRevision.NO_CONFORME) {
             calibracion.setEstado(EstadoCalibracion.EN_PROCESO);

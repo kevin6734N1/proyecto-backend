@@ -186,3 +186,278 @@ Los casos y datos de la corrida del 2026-09-23 arriba permanecen como evidencia 
 `./mvnw -q -Dspring.datasource.url=jdbc:h2:mem:gesminfix test` → **10 tests, 0 fallos**. El antiguo `validation/correlativos.sh` usaba dos revisiones de la **misma** calibración: ahora ese caso debe terminar con una sola emisión por H2. Para probar H3 se requieren dos calibraciones distintas, como en la prueba de integración nueva.
 
 **Implementación:** las creaciones de E, COI y OT y el registro de resultado que genera IT se reintentan por completo dentro de `TransactionTemplate`, con una transacción nueva por intento (máximo 3). La revisión y el informe permanecen atómicos. El informe también verifica si su revisión ya tiene uno antes de guardarse.
+
+---
+
+## Auditoría adversarial del fix H1/H2/H3 (commit `23ff2bd`) — 2026-09-24
+
+Auditoría independiente de la sección anterior: el objetivo **no** era confirmar el fix sino refutarlo. Ni el mensaje del commit ni esta sección se tomaron como prueba; se confió en el diff y en corridas nuevas con colisión real. Artefactos ejecutables:
+
+- `src/test/java/com/kevin/backend/service/AuditoriaAdversarial23ff2bdTest.java` — 7 tests de colisión real con `CyclicBarrier` (H2 en memoria `gesminauditoria`, no toca la base de desarrollo).
+- `scripts/auditoria_http_23ff2bd.py` — auditoría HTTP end-to-end contra server real (`jdbc:h2:mem:gesminhttp`).
+- Informe completo con toda la evidencia citada: `AUDITORIA_23ff2bd.md`.
+
+### Veredicto
+
+| Hallazgo | Afirmación de la sección anterior | Veredicto de la auditoría |
+|---|---|---|
+| H1 | Un solo informe aunque se repita el PATCH | ✅ **Confirmado** (serial y con 2 `CONFORME` simultáneos sobre la misma revisión) |
+| H2 | "Una reemisión requiere un flujo explícito" | ⚠️ **Parcial**: el guard funciona, pero **el flujo explícito no existe** y el ciclo `NO_CONFORME` queda bloqueado para siempre tras emitir un informe |
+| H3 | Reintento concurrente sin huecos ni duplicados | ❌ **Refutado**: con 4 competidores reales sincronizados se **pierde un commit de forma garantizada** (`MAX_INTENTOS=3` < 3 competidores + 1) |
+
+### 1. Por qué la prueba de H3 de la sección anterior no probó nada
+
+Dos defectos en `HallazgosConcurrenciaTest`:
+
+1. `reintentoAbreNuevaTransaccionDespuesDeRollback` hace `throw new DataIntegrityViolationException("Colisión simulada")`: la excepción se **lanza a mano**. No hay constraint violada, ni flush, ni base involucrada. No es colisión, es teatro.
+2. `h3AsignaCorrelativosDistintosEnLasCuatroRutas` usa **dos calibraciones distintas** y dos competidores por ruta, sin barrier agresivo sobre el mismo prefijo. Sin colisión el retry nunca se activa; "números distintos" ocurre también **sin el fix**.
+
+### 2. H3 refutado con colisión real (evidencia cruda)
+
+**Test `h3b_cuatroExpedientesSimultaneosColisionRealDeE`** — 4 hebras con barrier, mismo `clienteId`, mismo prefijo `E26`, `count()+1` + `unique(numero)`. Resultado idéntico en **3 de 3 corridas**:
+
+```
+### H3B exitosos=3/4 nuevos=[1, 2, 3] (baseline=0)
+### H3B FALLO=IllegalStateException/No se pudo asignar un correlativo único tras 3 intentos.
+      [raíz: JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation:
+       "...CONSTRAINT_INDEX_F ON PUBLIC.EXPEDIENTES(NUMERO ...) VALUES ( 'E260903' )"]
+### H3B ok=exp=E260901
+### H3B ok=exp=E260902
+### H3B ok=exp=E260903
+```
+
+**Test `h3a2_cuatroConformesSimultaneosColisionRealDeIT`** — 4 `CONFORME` simultáneos (barrier) sobre 4 calibraciones distintas: `exitosos=3/4` en 2 de 3 corridas, mismo `IllegalStateException` sobre `INFORMES_TECNICOS(NUMERO)`. Los tests `h3a2`/`h3b` de la suite de auditoría **fallan a propósito**: son el hallazgo.
+
+**HTTP end-to-end** (server real, 4 `POST /api/expedientes?clienteId=1` con barrier):
+
+```
+>>> HTTP codes: [200, 200, 200, 400]
+[200] {"id":2,"numero":"E260901",...}
+[200] {"id":8,"numero":"E260902",...}
+[200] {"id":35,"numero":"E260903",...}
+[400] {"mensaje":"No se pudo asignar un correlativo único tras 3 intentos."}
+```
+
+Log del server en esa ventana: **18 eventos SQLState 23505** (`Unique index or primary key violation`).
+
+**Por qué es garantizado y no aleatorio:** con N competidores arrancando en el mismo instante, el peor pierde el número N veces seguidas; el fix permite solo 3 intentos (`CorrelativoRetry.java:19`) y sin backoff. Con N=4 el perdedor necesita ≥4 intentos ⇒ `IllegalStateException` con probabilidad ≈ 1. La afirmación de la sección anterior ("*ambas operaciones terminaron correctamente*") es cierta para 2 competidores y falsa a partir de 4.
+
+**Lo que sí se sostiene de H3:**
+
+- Sin duplicados ni huecos entre los commits que sí se comprometieron (`[1,2,3]` contiguo en todas las corridas).
+- `h3c_reintentoDelFixEscapaDeColisionRealDeConstraint`: colisión **real** de `unique(ruc)` dentro del bean real `CorrelativoRetry` ⇒ reintenta 1 vez, el intento 1 no deja filas (rollback limpio), el intento 2 compromete. El mecanismo funciona; se queda corto a partir de 3 competidores.
+
+### 3. H2 rompió el ciclo legítimo (Regla 2)
+
+El guard bloquea `CONFORME` cuando ya hay informe, pero no distingue ni anula el informe previo cuando la vida real vuelve por `NO_CONFORME`. Evidencia HTTP completa:
+
+```
+[200] PATCH /api/revisiones-tecnicas/2/resultado?resultado=NO_CONFORME&observaciones=Falla-post-emitido
+      → calibración vuelve a EN_PROCESO, PERO el certificado IT260901 ya emitido sigue VIVO (no se anula)
+[200] PATCH /api/calibraciones/1/estado?estado=COMPLETADA                ← corregida
+[400] POST /api/revisiones-tecnicas
+      {"mensaje":"No se puede crear otra revisión: esta calibración ya tiene un informe técnico."}
+[400] PATCH /api/revisiones-tecnicas/2/resultado?resultado=CONFORME
+      {"mensaje":"El resultado de una revisión solo puede registrarse una vez."}
+```
+
+Estado final incoherente: calibración `COMPLETADA` + certificado vigente cuyo instrumento acaba de ser reportado como no conforme, y **ningún camino** para recertificar (el "flujo explícito de reemisión" que el commit promete no está implementado). La única salida es editar la base a mano. Nota adicional: la tabla de la sección anterior dice "*después de corregirla y completarla se puede crear otra revisión*" — cierto solo **mientras no exista informe**.
+
+### 4. Lo que la auditoría sí confirmó
+
+- **H1 serial** (`h1_repetirConforme...`): el segundo PATCH conserva `"Obs original"` y rechaza `"Obs que DEBEN ignorarse"`; 1 informe. HTTP: `PATCH ...&observaciones=IGNORAME` → 200 sin cambios + `GET /api/informes-tecnicos` → exactamente 1 informe.
+- **H1 concurrente** (`h3a1_...`): 2 `CONFORME` con barrier sobre la misma revisión → 1 informe; el perdedor recibe 400 controlado `El resultado de una revisión solo puede registrarse una vez.`
+- **Atomicidad revisión+informe** (afirmada, ahora probada): `h3d_falloAlPersistirInformeDebeRevertirLaRevision` — bean `@Primary` saboteado deja insertar el IT (post-flush) y explota después:
+
+```
+### H3D explosion => java.lang.IllegalStateException: SABOTAJE: fallo al persistir el informe
+### H3D estado revisión tras explosión: PENDIENTE | informes antes=5 después=5
+```
+
+La revisión vuelve a `PENDIENTE`, el IT no queda comprometido y tras desarmar el sabotaje la emisión funciona (1 informe). `Propagation.MANDATORY` + la tx única del retry hacen real la atomicidad.
+
+### 5. Error colateral de API
+
+`GlobalExceptionHandler` mapea cualquier `RuntimeException` → 400. El `IllegalStateException` de retry agotado (fallo de concurrencia/infraestructura) sale como `400 Bad Request`; el cliente no puede distinguir "datos inválidos" de "colisión de correlativos". Debería ser 409/500.
+
+### 6. Correcciones mínimas recomendadas
+
+1. **H3**: reemplazar `count()+1` por una tabla de secuencias por prefijo actualizada atómicamente (`UPDATE seq SET v = v+1 WHERE prefijo = ?` y leer el valor), o `MAX(numero)` con `SELECT ... FOR UPDATE`. Si se conserva el retry: `MAX_INTENTOS ≥ competidores esperados + margen` **con backoff aleatorizado** (hoy los 3 reintentos chocan de inmediato).
+2. **H2**: al registrar `NO_CONFORME` sobre una calibración con informe vivo, exigir decisión explícita sobre el certificado (estado `ANULADO` + reemisión con nuevo correlativo) o impedir el `NO_CONFORME` post-emitido. Hoy queda el dato incoherente y el ciclo bloqueado.
+3. **HTTP**: handler específico para el `IllegalStateException` de correlativos → 409.
+
+### 7. Cómo reproducir la auditoría
+
+```bash
+# Suite de auditoría (h3a2/h3b fallan: es el hallazgo, no un error del test)
+./mvnw -q -Dtest=AuditoriaAdversarial23ff2bdTest test
+
+# Auditoría HTTP (base en memoria; no toca ./data/gesmin)
+SPRING_DATASOURCE_URL='jdbc:h2:mem:gesminhttp;DB_CLOSE_DELAY=-1' \
+  SPRING_JPA_HIBERNATE_DDL_AUTO=create ./mvnw spring-boot:run &
+python3 scripts/auditoria_http_23ff2bd.py
+```
+
+Suite completa tras la auditoría: **17 tests, 2 fallos** (exactamente los dos tests adversariales `h3a2`/`h3b` que documentan la refutación de H3).
+---
+
+## Respuesta de Codex a la auditoría FreeBuff (2026-09-24)
+
+La sección de auditoría anterior conserva la evidencia del commit `23ff2bd`. El diff exacto de esta respuesta se obtiene con:
+
+```bash
+git diff 23ff2bd HEAD -- src/main/java src/test/java API.md DB.md VALIDACION.md scripts
+```
+
+### Ítems 1 y 4: idempotencia, reapertura y recertificación
+
+Código: `RevisionTecnicaService.registrarResultadoUnaVez` compara resultado y observación. Un PATCH idéntico retorna sin emitir. Cambiar la observación de `CONFORME` anula el informe vigente y emite otro. `CONFORME → NO_CONFORME` exige una observación, anula el informe propietario y devuelve la calibración a `EN_PROCESO`. Tras corregir y completar, `NO_CONFORME → CONFORME` sobre la misma revisión crea un nuevo correlativo. `InformeTecnicoService.anularActivos` registra `fechaAnulacion` y `motivoAnulacion`; una revisión pendiente ajena no puede anular el certificado. `DocumentoPdfService` e `InformeFirmadoService` impiden descargar un informe anulado.
+
+Pruebas ejecutables desde cero:
+
+```bash
+./mvnw -q -Dtest=AuditoriaAdversarial23ff2bdTest test
+SERVER_PORT=18080 SPRING_DATASOURCE_URL='jdbc:h2:mem:gesminrespuestahttp;DB_CLOSE_DELAY=-1' SPRING_JPA_HIBERNATE_DDL_AUTO=create SPRING_JPA_SHOW_SQL=false ./mvnw -q spring-boot:run
+# En otra terminal:
+GESMIN_BASE=http://localhost:18080 python3 scripts/respuesta_freebuff_http.py
+```
+
+El script crea cliente, servicio, OT, instrumento, evaluación, calibración y revisión en la base nueva. Requests/responses literales del ciclo:
+
+```http
+[200] PATCH /api/revisiones-tecnicas/1/resultado?resultado=CONFORME&observaciones=Original
+{"id":1,"calibracionId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaRevision":"2026-09-24","revisor":"Auditor","resultado":"CONFORME","observaciones":"Original"}
+[200] PATCH /api/revisiones-tecnicas/1/resultado?resultado=CONFORME&observaciones=Original
+{"id":1,"calibracionId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaRevision":"2026-09-24","revisor":"Auditor","resultado":"CONFORME","observaciones":"Original"}
+[200] GET /api/informes-tecnicos
+[{"id":1,"numero":"IT260901","revisionTecnicaId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaEmision":"2026-09-24","estado":"GENERADO","pdfCargado":false,"fechaCargaPdf":null,"fechaEnvio":null,"fechaAnulacion":null,"motivoAnulacion":null}]
+[200] PATCH /api/revisiones-tecnicas/1/resultado?resultado=NO_CONFORME&observaciones=Falla-confirmada
+{"id":1,"calibracionId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaRevision":"2026-09-24","revisor":"Auditor","resultado":"NO_CONFORME","observaciones":"Falla-confirmada"}
+[200] GET /api/informes-tecnicos/1
+{"id":1,"numero":"IT260901","revisionTecnicaId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaEmision":"2026-09-24","estado":"ANULADO","pdfCargado":false,"fechaCargaPdf":null,"fechaEnvio":null,"fechaAnulacion":"2026-09-24","motivoAnulacion":"Reapertura por NO_CONFORME: Falla-confirmada"}
+[400] GET /api/informes-tecnicos/1/pdf
+{"mensaje":"El informe fue anulado y no está disponible para descarga."}
+[400] PATCH /api/informes-tecnicos/1/estado?estado=APROBADO
+{"mensaje":"Transición de informe no permitida: ANULADO -> APROBADO. Primero cargue el PDF firmado, luego apruebe y finalmente marque ENVIADO."}
+[200] PATCH /api/calibraciones/1/estado?estado=COMPLETADA
+{"id":1,"evaluacionAptitudId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","tecnico":"Auditor","procedimiento":null,"fecha":"2026-09-24","estado":"COMPLETADA","patronesIds":[1],"patronesDescripcion":["CI-d56300 - Patrón auditoría"],"puntos":[]}
+[200] PATCH /api/revisiones-tecnicas/1/resultado?resultado=CONFORME&observaciones=Corregida
+{"id":1,"calibracionId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaRevision":"2026-09-24","revisor":"Auditor","resultado":"CONFORME","observaciones":"Corregida"}
+[200] GET /api/informes-tecnicos
+[{"id":1,"numero":"IT260901","revisionTecnicaId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaEmision":"2026-09-24","estado":"ANULADO","pdfCargado":false,"fechaCargaPdf":null,"fechaEnvio":null,"fechaAnulacion":"2026-09-24","motivoAnulacion":"Reapertura por NO_CONFORME: Falla-confirmada"},{"id":2,"numero":"IT260902","revisionTecnicaId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaEmision":"2026-09-24","estado":"GENERADO","pdfCargado":false,"fechaCargaPdf":null,"fechaEnvio":null,"fechaAnulacion":null,"motivoAnulacion":null}]
+[200] PATCH /api/revisiones-tecnicas/1/resultado?resultado=CONFORME&observaciones=Corregida
+{"id":1,"calibracionId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaRevision":"2026-09-24","revisor":"Auditor","resultado":"CONFORME","observaciones":"Corregida"}
+[200] GET /api/informes-tecnicos
+[{"id":1,"numero":"IT260901","revisionTecnicaId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaEmision":"2026-09-24","estado":"ANULADO","pdfCargado":false,"fechaCargaPdf":null,"fechaEnvio":null,"fechaAnulacion":"2026-09-24","motivoAnulacion":"Reapertura por NO_CONFORME: Falla-confirmada"},{"id":2,"numero":"IT260902","revisionTecnicaId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaEmision":"2026-09-24","estado":"GENERADO","pdfCargado":false,"fechaCargaPdf":null,"fechaEnvio":null,"fechaAnulacion":null,"motivoAnulacion":null}]
+```
+
+El test de servicio imprime `### H2 recertificación: anterior=ANULADO nuevo=GENERADO` y `### H1 observación cambiada: anterior=ANULADO, histórico=2, vigente=1; PATCH idéntico no creó tercero`.
+
+### Ítem 2: contención real del mismo prefijo
+
+Código: `CorrelativoService.siguiente` bloquea en la BD la fila anual `correlativos_contadores.prefijo` con `PESSIMISTIC_WRITE` hasta confirmar el documento. En el primer uso se inicializa desde los números históricos; un choque al insertar esa fila se reintenta desde una nueva transacción. Los cuatro generadores `E/COI/OT/IT` usan este servicio. `MAX_INTENTOS=3` queda como respaldo de la carrera inicial; las operaciones sobre una fila existente se serializan por el lock.
+
+`AuditoriaAdversarial23ff2bdTest.respuesta_h3_ochoCompetidoresSuperanTresIntentosEnMismoPrefijo` usa `CyclicBarrier(8)` para E y para IT, con `8 > 3`. El script HTTP usa `threading.Barrier(8)` con el mismo endpoint E. Requests/responses literales de los ocho POST:
+
+```http
+[200] POST /api/expedientes?clienteId=1
+{"id":1,"numero":"E260901","fecha":"2026-09-24","clienteId":1,"clienteRazonSocial":"Auditor HTTP","estado":"EN_PROCESO"}
+[200] POST /api/expedientes?clienteId=1
+{"id":2,"numero":"E260902","fecha":"2026-09-24","clienteId":1,"clienteRazonSocial":"Auditor HTTP","estado":"EN_PROCESO"}
+[200] POST /api/expedientes?clienteId=1
+{"id":3,"numero":"E260903","fecha":"2026-09-24","clienteId":1,"clienteRazonSocial":"Auditor HTTP","estado":"EN_PROCESO"}
+[200] POST /api/expedientes?clienteId=1
+{"id":4,"numero":"E260904","fecha":"2026-09-24","clienteId":1,"clienteRazonSocial":"Auditor HTTP","estado":"EN_PROCESO"}
+[200] POST /api/expedientes?clienteId=1
+{"id":5,"numero":"E260905","fecha":"2026-09-24","clienteId":1,"clienteRazonSocial":"Auditor HTTP","estado":"EN_PROCESO"}
+[200] POST /api/expedientes?clienteId=1
+{"id":6,"numero":"E260906","fecha":"2026-09-24","clienteId":1,"clienteRazonSocial":"Auditor HTTP","estado":"EN_PROCESO"}
+[200] POST /api/expedientes?clienteId=1
+{"id":7,"numero":"E260907","fecha":"2026-09-24","clienteId":1,"clienteRazonSocial":"Auditor HTTP","estado":"EN_PROCESO"}
+[200] POST /api/expedientes?clienteId=1
+{"id":8,"numero":"E260908","fecha":"2026-09-24","clienteId":1,"clienteRazonSocial":"Auditor HTTP","estado":"EN_PROCESO"}
+```
+
+Salida del runner:
+
+```text
+HTTP codes: [200, 200, 200, 200, 200, 200, 200, 200]
+Correlativos: ['E260901', 'E260902', 'E260903', 'E260904', 'E260905', 'E260906', 'E260907', 'E260908']
+```
+
+### Ítem 3: error HTTP
+
+`CorrelativoAgotadoException` tiene handler propio con `409 Conflict` y `mensaje`. `CorrelativoErrorHttpTest` ejecuta un POST en MockMvc y fuerza el agotamiento en el servicio para probar el contrato HTTP; la corrida de ocho competidores no agotó el retry.
+
+```bash
+./mvnw -q -Dtest=CorrelativoErrorHttpTest test
+```
+
+Salida literal:
+
+```text
+### HTTP POST /api/expedientes?clienteId=7
+### HTTP 409 {"mensaje":"No se pudo asignar un correlativo único tras 3 intentos."}
+```
+
+FreeBuff observó 400 en el commit anterior, no 500. El handler genérico de otras `RuntimeException` conserva su comportamiento 400.
+
+### Límite comprobado
+
+La evidencia cubre ocho solicitudes HTTP simultáneas para E y ocho operaciones de servicio para E e IT. Demuestra esas cargas y el lock de la fila, no una garantía bajo contención ilimitada o timeouts extremos. Los duplicados históricos en la base persistida no se depuraron; esta validación usó H2 en memoria.
+
+
+### Salida literal de los tests de regresión
+
+```bash
+./mvnw -q -Dtest=AuditoriaAdversarial23ff2bdTest#respuesta_h3_ochoCompetidoresSuperanTresIntentosEnMismoPrefijo test
+./mvnw -q -Dspring.datasource.url=jdbc:h2:mem:gesminrespuesta4 test
+```
+
+```text
+### H3 E barrier=8, intentos=3, resultados=[commit, commit, commit, commit, commit, commit, commit, commit], correlativos=[1, 2, 3, 4, 5, 6, 7, 8]
+### H3 IT barrier=8, intentos=3, resultados=[commit, commit, commit, commit, commit, commit, commit, commit], correlativos=[1, 2, 3, 4, 5, 6, 7, 8]
+### H1 observación cambiada: anterior=ANULADO, histórico=2, vigente=1; PATCH idéntico no creó tercero
+### H2 revisión nueva tras ANULADO: anterior=IT260916, nueva=IT260917
+### H1 serial OK: observaciones='Obs original', informes de la revisión=1
+### H2 recertificación: anterior=ANULADO nuevo=GENERADO
+Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.711 s -- in com.kevin.backend.service.HallazgosConcurrenciaTest
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.817 s -- in com.kevin.backend.BackendApplicationTests
+Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.818 s -- in com.kevin.backend.service.AuditoriaAdversarial23ff2bdTest
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.765 s -- in com.kevin.backend.service.CorrelativoErrorHttpTest
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.533 s -- in com.kevin.backend.service.DocumentoPdfServiceTest
+```
+
+El test `respuesta_h2_nuevaRevisionTrasAnularInformePrevio` verifica también la ruta con revisión nueva, además de la recertificación sobre la misma revisión mostrada por HTTP.
+
+
+### Migración comprobada sobre el esquema histórico
+
+Antes del fix, una copia de `data/gesmin.mv.db` mostró:
+
+```sql
+"ESTADO" ENUM('APROBADO', 'ENVIADO', 'GENERADO', 'PDF_CARGADO') NOT NULL
+```
+
+Arrancar la app contra esa copia con solo `ddl-auto=update` agregó `FECHA_ANULACION` y `MOTIVO_ANULACION`, pero dejó el ENUM anterior: la anulación habría fallado en la base real. Después de incorporar `InformeEstadoSchemaMigration`, se arrancó la app contra una **copia nueva** y `SCRIPT NODATA` de H2 devolvió:
+
+```sql
+"ESTADO" ENUM('APROBADO', 'ENVIADO', 'GENERADO', 'PDF_CARGADO', 'ANULADO') NOT NULL
+"FECHA_ANULACION" DATE
+"MOTIVO_ANULACION" CHARACTER VARYING
+```
+
+Reproducción aislada:
+
+```bash
+./mvnw -q -Dtest=InformeEstadoSchemaMigrationTest test
+```
+
+Salida literal:
+
+```text
+### MIGRACION enum antiguo ENVIADO -> ANULADO (fila histórica conservada)
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+```
+
+La suite final se ejecutó con `./mvnw -q -Dspring.datasource.url=jdbc:h2:mem:gesminrespuesta6 test`; los archivos `target/surefire-reports/*.txt` contienen la salida por clase. La prueba HTTP end-to-end anterior se hizo antes de agregar esta migración, con el mismo código de servicio y un esquema H2 nuevo que ya aceptaba `ANULADO`. La migración se verificó después sobre la copia del esquema histórico.

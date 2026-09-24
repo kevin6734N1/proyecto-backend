@@ -18,11 +18,13 @@ public class InformeTecnicoService {
 
     private final InformeTecnicoRepository informeTecnicoRepository;
     private final InformeFirmadoService firmados;
+    private final CorrelativoService contador;
 
     public InformeTecnicoService(InformeTecnicoRepository informeTecnicoRepository,
-                                 InformeFirmadoService firmados) {
+                                 InformeFirmadoService firmados, CorrelativoService contador) {
         this.informeTecnicoRepository = informeTecnicoRepository;
         this.firmados = firmados;
+        this.contador = contador;
     }
 
     public List<InformeTecnicoDTO> listar() {
@@ -35,7 +37,7 @@ public class InformeTecnicoService {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public InformeTecnico generarDesdeRevision(RevisionTecnica revision) {
-        if (informeTecnicoRepository.existsByRevisionTecnicaId(revision.getId())) {
+        if (informeTecnicoRepository.existsByRevisionTecnicaIdAndEstadoNot(revision.getId(), EstadoInforme.ANULADO)) {
             throw new IllegalArgumentException("Esta revisión ya tiene un informe técnico.");
         }
         InformeTecnico informe = new InformeTecnico();
@@ -45,6 +47,21 @@ public class InformeTecnicoService {
         informe.setPdfCargado(false);
         informe.setNumero(generarNumero());
         return informeTecnicoRepository.saveAndFlush(informe);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void anularActivos(Long calibracionId, Long revisionId, String motivo) {
+        for (InformeTecnico informe : informeTecnicoRepository
+                .findActivosByCalibracionId(calibracionId, EstadoInforme.ANULADO)) {
+            if (!informe.getRevisionTecnica().getId().equals(revisionId)) {
+                throw new IllegalArgumentException(
+                        "Hay un informe vigente de otra revisión; primero debe resolverse esa revisión.");
+            }
+            informe.setEstado(EstadoInforme.ANULADO);
+            informe.setFechaAnulacion(LocalDate.now());
+            informe.setMotivoAnulacion(motivo);
+            informeTecnicoRepository.saveAndFlush(informe);
+        }
     }
 
     @Transactional
@@ -73,13 +90,8 @@ public class InformeTecnicoService {
     }
 
     private String generarNumero() {
-        LocalDate hoy = LocalDate.now();
-        String yy = String.format("%02d", hoy.getYear() % 100);
-        String mm = String.format("%02d", hoy.getMonthValue());
-        String prefijoAnual = "IT" + yy;
-
-        long correlativo = informeTecnicoRepository.countByNumeroStartingWith(prefijoAnual) + 1;
-        return "IT" + yy + mm + String.format("%02d", correlativo);
+        String yy = String.format("%02d", LocalDate.now().getYear() % 100);
+        return contador.siguiente("IT", () -> informeTecnicoRepository.countByNumeroStartingWith("IT" + yy));
     }
 
     private InformeTecnico buscarEntidadPorId(Long id) {
@@ -98,7 +110,9 @@ public class InformeTecnicoService {
                 i.getEstado(),
                 i.getPdfCargado(),
                 i.getFechaCargaPdf(),
-                i.getFechaEnvio()
+                i.getFechaEnvio(),
+                i.getFechaAnulacion(),
+                i.getMotivoAnulacion()
         );
     }
 }

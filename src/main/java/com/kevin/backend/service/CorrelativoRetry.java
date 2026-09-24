@@ -1,5 +1,6 @@
 package com.kevin.backend.service;
 
+import com.kevin.backend.exception.CorrelativoAgotadoException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Component;
@@ -30,7 +31,7 @@ public class CorrelativoRetry {
                 return transaccion.execute(estado -> operacion.get());
             } catch (DataIntegrityViolationException | TransientDataAccessException e) {
                 if (intento == MAX_INTENTOS) {
-                    throw new IllegalStateException(
+                    throw new CorrelativoAgotadoException(
                             "No se pudo asignar un correlativo único tras " + MAX_INTENTOS + " intentos.", e);
                 }
             }

@@ -18,13 +18,15 @@ public class OrdenDeTrabajoService {
     private final OrdenDeTrabajoRepository ordenDeTrabajoRepository;
     private final CotizacionRepository cotizacionRepository;
     private final CorrelativoRetry correlativos;
+    private final CorrelativoService contador;
 
     public OrdenDeTrabajoService(OrdenDeTrabajoRepository ordenDeTrabajoRepository,
                                   CotizacionRepository cotizacionRepository,
-                                  CorrelativoRetry correlativos) {
+                                  CorrelativoRetry correlativos, CorrelativoService contador) {
         this.ordenDeTrabajoRepository = ordenDeTrabajoRepository;
         this.cotizacionRepository = cotizacionRepository;
         this.correlativos = correlativos;
+        this.contador = contador;
     }
 
     public List<OrdenDeTrabajoDTO> listar() {
@@ -86,13 +88,8 @@ public class OrdenDeTrabajoService {
     }
 
     private String generarNumero() {
-        LocalDate hoy = LocalDate.now();
-        String yy = String.format("%02d", hoy.getYear() % 100);
-        String mm = String.format("%02d", hoy.getMonthValue());
-        String prefijoAnual = "OT" + yy;
-
-        long correlativo = ordenDeTrabajoRepository.countByNumeroStartingWith(prefijoAnual) + 1;
-        return "OT" + yy + mm + String.format("%02d", correlativo);
+        String yy = String.format("%02d", LocalDate.now().getYear() % 100);
+        return contador.siguiente("OT", () -> ordenDeTrabajoRepository.countByNumeroStartingWith("OT" + yy));
     }
 
     private OrdenDeTrabajo buscarEntidadPorId(Long id) {
