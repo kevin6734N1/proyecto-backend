@@ -249,7 +249,7 @@ erDiagram
 
 ## Reglas de negocio verificadas en validación (2026-09-23)
 
-> Sesión adversarial completa en `VALIDACION.md` (125 requests, 13 casos). Resumen histórico de lo que el esquema + services **sí** garantizaban y lo que **quedaba pendiente al 2026-09-23**. El estado actual de H1-H3 figura al final.
+> Sesión adversarial completa en [historial E1](HISTORIAL_VALIDACION.md#e1) (125 requests, 13 casos). Resumen histórico de lo que el esquema + services **sí** garantizaban y lo que **quedaba pendiente al 2026-09-23**. El estado actual de H1-H3 figura en [VALIDACION.md](VALIDACION.md).
 
 ### Verificadas y funcionando
 
@@ -275,7 +275,7 @@ erDiagram
 | H5 | Cierre de expediente sin validación (OTs incompletas, evaluaciones sin responder, informes sin enviar) + expediente CERRADO reabrible por PATCH | expedientes cerrados con pendientes | 🟡 BAJA |
 | H6 | Revisiones simultáneas sobre la misma calibración permitidas; las `PENDIENTE` no reclamadas quedan huérfanas | filas sin uso | 🟡 BAJA |
 
-> Los fixes sugeridos de cada hallazgo están detallados en `VALIDACION.md` `3. Mientras no se parcheen, el frontend debe compensar (ver `API.md` `10.2).
+> Los fixes sugeridos en esa sesión están en [historial E1, sección 3](HISTORIAL_VALIDACION.md#e1); el estado vigente de cada hallazgo está en [VALIDACION.md](VALIDACION.md).
 
 ## Archivo firmado fuera de H2 (2026-09-24)
 
@@ -287,7 +287,7 @@ H1 y H2 se controlan en servicios y repositorios sin una nueva restricción de u
 
 ## Respuesta a FreeBuff (2026-09-24)
 
-La descripción anterior de H1-H3 es histórica y fue refutada parcialmente en `VALIDACION.md`. El esquema actual agrega `correlativos_contadores(prefijo PRIMARY KEY, ultimo)`. La transacción bloquea la fila anual `E26`/`COI26`/`OT26`/`IT26` hasta confirmar el documento; el contador y su documento se revierten juntos. En un prefijo nuevo, el contador se inicializa con el número de documentos históricos del mismo tipo/año, y el retry cubre la carrera de inserción inicial. No se migraron ni borraron filas previas.
+La descripción anterior de H1-H3 es histórica: [historial E4](HISTORIAL_VALIDACION.md#e4) contiene la refutación y [VALIDACION.md](VALIDACION.md) su estado vigente. El esquema actual agrega `correlativos_contadores(prefijo PRIMARY KEY, ultimo)`. La transacción bloquea la fila anual `E26`/`COI26`/`OT26`/`IT26` hasta confirmar el documento; el contador y su documento se revierten juntos. En un prefijo nuevo, el contador se inicializa con el número de documentos históricos del mismo tipo/año, y el retry cubre la carrera de inserción inicial. No se migraron ni borraron filas previas.
 
 `informes_tecnicos` agrega `fecha_anulacion` y `motivo_anulacion`, además del estado `ANULADO`. Los informes anulados permanecen en el historial y conservan su correlativo, pero no cuentan como vigentes al validar una nueva emisión. Las filas previas con duplicados históricos no fueron corregidas automáticamente.
 

@@ -19,7 +19,7 @@ Documentación para consumir la API REST del sistema de gestión técnico (cotiz
 
 > ⚠️ **IMPORTANTE — CORS:** el backend solo acepta peticiones desde `http://localhost:5175` (ver `config/CorsConfig.java`). Si tu dev server corre en otro puerto (ej. el 5173 por defecto de Vite), o configuras el tuyo al 5175, o pide a Kevin que agregue tu origen.
 
-> ✅ **Los datos SÍ persisten** (desde la validación del 2026-09-23 la BD está en archivo): podés reiniciar el backend sin perder nada. Si borrás la carpeta `data/` sí se pierde todo. Ver `VALIDACION.md` para el detalle de la sesión de pruebas.
+> ✅ **Los datos SÍ persisten** (desde la validación del 2026-09-23 la BD está en archivo): podés reiniciar el backend sin perder nada. Si borrás la carpeta `data/` sí se pierde todo. Ver [historial E1](HISTORIAL_VALIDACION.md#e1) para la sesión de pruebas.
 
 ---
 
@@ -323,14 +323,14 @@ curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 1. **Formato de certificado de calibración**: por ahora el PDF generado usa el Informe Técnico compartido como referencia visual provisional. Falta el ejemplo del certificado específico.
 2. **Sin usuarios ni login**: `tecnico`, `revisor`, `ejecutor` son texto libre. Cuando exista el módulo Usuario/Permisos, estos campos pasarán a referencias y probablemente habrá auth (JWT/session).
 3. **Errores 400 vs 404**: errores de negocio o "no encontrado" llegan como 400 con `{"mensaje": "..."}`; un agotamiento de reintentos de correlativo llega como 409 con el mismo campo. Centraliza el manejo en tu fetch/axios interceptor.
-4. ~~**Datos volátiles**: H2 en memoria.~~ **Resuelto (2026-09-23):** la BD ahora está en archivo (`jdbc:h2:file:./data/gesmin`) y persiste entre reinicios. Verificado con reinicios reales del server en `VALIDACION.md`.
+4. ~~**Datos volátiles**: H2 en memoria.~~ **Resuelto (2026-09-23):** la BD ahora está en archivo (`jdbc:h2:file:./data/gesmin`) y persiste entre reinicios. Verificado con reinicios reales del server en [historial E1](HISTORIAL_VALIDACION.md#e1).
 5. **CORS fijo a puerto 5175**: coordina con Kevin si tu frontend corre en otro puerto/origen.
 
 ---
 
 ## 10. ⚠️ AVISO PARA EL FRONTEND — hallazgos de la validación (2026-09-23)
 
-> Se ejecutó una validación adversarial del flujo completo (125 requests, 13 casos). Detalle completo en `VALIDACION.md`. **Lo que sigue es lo que te afecta directamente al construir la UI.**
+> Se ejecutó una validación adversarial del flujo completo (125 requests, 13 casos). Detalle completo en [historial E1](HISTORIAL_VALIDACION.md#e1); estado vigente en [VALIDACION.md](VALIDACION.md). **Lo que sigue es lo que te afecta directamente al construir la UI.**
 
 ### 10.1 Reglas que el backend SÍ defiende (podés confiar)
 
@@ -363,7 +363,7 @@ El backend compara resultado y observaciones, y anula el certificado vigente ant
 - El contador de correlativos se bloquea por prefijo en la BD. Si se agotan 3 reintentos por contención, se devuelve **409** con `mensaje` legible.
 - No hay `POST /informes-tecnicos`: los informes **solo** nacen automáticamente de una revisión CONFORME (405 si lo intentás).
 
-> C, D y E siguen pendientes; la auditoría y su respuesta reproducible están en `VALIDACION.md`.
+> C, D y E siguen pendientes; el estado vigente está en [VALIDACION.md](VALIDACION.md), y la auditoría y su respuesta originales en [historial E4–E5](HISTORIAL_VALIDACION.md#e4).
 
 ---
 
