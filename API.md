@@ -224,7 +224,7 @@ PUT /api/calibraciones/1/mediciones
 
 > 🔒 **Reglas:**
 > - Solo se puede crear una revisión si la calibración está **`COMPLETADA`**.
-> - **`NO_CONFORME`** → la calibración vuelve a `EN_PROCESO` (loop de corrección: se registran mediciones de nuevo → `COMPLETADA` → nueva revisión). La misma revisión NO se reusa: se crea otra.
+> - **`NO_CONFORME`** → la calibración vuelve a `EN_PROCESO` (ciclo de corrección: se registran mediciones de nuevo → `COMPLETADA` → recertificación de la misma revisión o creación de otra). El informe anterior queda ANULADO.
 > - **`CONFORME`** → se genera **automáticamente** un `InformeTecnico` con correlativo.
 > - Repetir el mismo `resultado` y las mismas `observaciones` es idempotente. Cambiar observaciones de un `CONFORME` anula su informe vigente y genera uno nuevo. Para corregir un resultado ya certificado: registrar `NO_CONFORME` con observación, completar de nuevo la calibración y registrar `CONFORME`; el informe anterior queda `ANULADO` y se crea otro con correlativo distinto.
 
@@ -402,7 +402,21 @@ La afirmación previa de H2/H3 en esta sección quedó refutada por la auditorí
 1. `PATCH /api/revisiones-tecnicas/{id}/resultado?resultado=NO_CONFORME&observaciones=Falla-confirmada`: anula el informe vigente de **esa revisión**, registra `fechaAnulacion` y `motivoAnulacion`, y pasa la calibración a `EN_PROCESO`. No se permite usar otra revisión pendiente para anular el certificado.
 2. Tras corregir el trabajo, `PATCH /api/calibraciones/{id}/estado?estado=COMPLETADA`.
 3. `PATCH /api/revisiones-tecnicas/{id}/resultado?resultado=CONFORME&observaciones=Corregida`: genera otro IT. También se puede crear una revisión nueva una vez anulado el informe previo.
-4. El informe `ANULADO` permanece en `GET /api/informes-tecnicos` para trazabilidad, pero no se puede aprobar ni descargar su PDF, firmado o sin firma. El DTO incluye `fechaAnulacion` y `motivoAnulacion`. Si ya se había enviado, la comunicación de anulación al cliente sigue siendo manual.
+4. El informe `ANULADO` permanece en `GET /api/informes-tecnicos` para trazabilidad, pero no se puede aprobar ni descargar su PDF, firmado o sin firma. El DTO incluye `fechaAnulacion` y `motivoAnulacion`.
+
+### Registro y comunicación de una anulación (H2)
+
+**Registro consultable actual:** la anulación queda en el propio `InformeTecnico`, sin evento separado. `GET /api/informes-tecnicos/{id}` devuelve `estado="ANULADO"`, `fechaAnulacion`, `motivoAnulacion` y el `fechaEnvio` histórico si existía. `GET /api/informes-tecnicos` incluye esos informes; el cliente debe filtrar `estado="ANULADO"` localmente, porque hoy no hay filtro de servidor. El informe anulado no puede aprobarse ni descargarse. La recertificación recibe otro número y el anterior permanece visible.
+
+**Paso operativo vigente mientras Gesmin decide el procedimiento:** después de reabrir una revisión, el responsable operativo (por definir en Gesmin) consulta `GET /api/informes-tecnicos/{id}` para leer el motivo y la fecha de anulación. Si el certificado anterior ya fue comunicado al cliente, el aviso se gestiona manualmente fuera de esta API según el procedimiento que defina Gesmin. El backend **no envía avisos ni guarda confirmación, destinatario o fecha de comunicación de la anulación**. Por eso `ANULADO` acredita la invalidación interna, no que el cliente haya sido informado; la UI no debe presentarlo como “cliente notificado”.
+
+**Decisión pendiente de Gesmin:** elegir entre (1) aviso manual con evidencia fuera del sistema; (2) aviso manual con un futuro endpoint de constancia (responsable, destinatario, fecha y canal); o (3) evento persistente/outbox y consumidor de notificación automática. También debe definir qué informes requieren aviso, quién lo hace y a qué destinatarios. Hasta esa decisión no se crea evento separado ni mecanismo automático.
+
+```http
+GET /api/informes-tecnicos/1
+HTTP/1.1 200
+{"id":1,"numero":"IT260901","revisionTecnicaId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaEmision":"2026-09-24","estado":"ANULADO","pdfCargado":false,"fechaCargaPdf":null,"fechaEnvio":null,"fechaAnulacion":"2026-09-24","motivoAnulacion":"Reapertura por NO_CONFORME: Falla-confirmada"}
+```
 
 Un PATCH con el mismo resultado y observaciones conserva el estado sin emitir otro IT. Un `CONFORME` con observaciones distintas anula el informe anterior y emite uno nuevo. `ANULADO` no vuelve a estar vigente.
 

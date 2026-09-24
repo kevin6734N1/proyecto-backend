@@ -532,3 +532,149 @@ Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
 ```
 
 **Resultado de esta entrada:** El 3/4 antiguo y el 8/8 nuevo no son dos verdades sobre el mismo código. Se mantiene explícita una **contradicción histórica abierta de evidencia**: no se ejecutaron ambos commits en un experimento controlado sobre el mismo entorno. La auditoría original registró HTTP `400` para el agotamiento en `23ff2bd`; la mención posterior de “500” no coincide con ese artefacto.
+
+<a id="e7"></a>
+
+## E7 — 2026-09-24 — FreeBuff
+
+**Texto original de esta entrada (verificación nueva):** cierra la contradicción histórica de H3 registrada en E6.
+
+**Alcance del código verificado:** HEAD era `328018b` y `git diff 4c3cbb8 HEAD --name-only` muestra solo `API.md`, `DB.md`, `HISTORIAL_VALIDACION.md` y `VALIDACION.md`; el código probado es exactamente el de `4c3cbb8`.
+
+**Inspección del código vigente:** `CorrelativoService.siguiente` declara `@Transactional(propagation = Propagation.MANDATORY)` y bloquea la fila anual mediante `CorrelativoContadorRepository.bloquear` (`PESSIMISTIC_WRITE`), de modo que el lock vive hasta el commit del documento. Los cuatro generadores pasan por `contador.siguiente(...)`: `ExpedienteService` (E), `CotizacionService` (COI), `OrdenDeTrabajoService` (OT) e `InformeTecnicoService` (IT). `CorrelativoRetry` reintenta con `PROPAGATION_REQUIRES_NEW` y `MAX_INTENTOS=3`; `GlobalExceptionHandler` mapea `CorrelativoAgotadoException` a **409**.
+
+**Evidencia cruda de la reproducción (misma base `gesminauditoria`, código `4c3cbb8`):**
+
+```text
+4c3cbb8 / FreeBuff / H3B+barrier=8 juntos / gesminauditoria: H3B exitosos=4/4 nuevos=[1, 2, 3, 4] (baseline=0)
+### H3B ok=exp=E260904
+### H3B ok=exp=E260901
+### H3B ok=exp=E260902
+### H3B ok=exp=E260903
+### H3 E barrier=8, intentos=3, resultados=[commit, commit, commit, commit, commit, commit, commit, commit], correlativos=[5, 6, 7, 8, 9, 10, 11, 12]
+### H3 IT barrier=8, intentos=3, resultados=[commit, commit, commit, commit, commit, commit, commit, commit], correlativos=[1, 2, 3, 4, 5, 6, 7, 8]
+### HTTP 409 {"mensaje":"No se pudo asignar un correlativo único tras 3 intentos."}
+Tests run: 10, Failures: 0, Errors: 0, Skipped: 0 -- in com.kevin.backend.service.AuditoriaAdversarial23ff2bdTest
+```
+
+Los únicos `SQLState 23505` registrados en las corridas fueron sobre `CORRELATIVOS_CONTADORES(PREFIJO)` (carrera de inicialización del contador, cubierta por el retry), no sobre el índice único del documento: la colisión real que E4 refutó en `23ff2bd` ya no se produce. Los dos tests que en E4 fallaban a propósito (`h3a2`, `h3b`) hoy pasan dentro de la suite completa (10/10).
+
+**Cierre de la contradicción:** `git show 23ff2bd:src/main/java/com/kevin/backend/service/ExpedienteService.java` confirma `countByNumeroStartingWith(prefijoAnual) + 1` y `CorrelativoRetry` con `MAX_INTENTOS=3`; el algoritmo refutado por E4 y el vigente son distintos, por lo que “3/4” y “8/8” nunca fueron dos verdades sobre el mismo código.
+
+**Reproducción:**
+
+```bash
+./mvnw -q -Dtest='AuditoriaAdversarial23ff2bdTest#h3b_cuatroExpedientesSimultaneosColisionRealDeE,respuesta_h3_ochoCompetidoresSuperanTresIntentosEnMismoPrefijo' test
+./mvnw -q -Dtest=CorrelativoErrorHttpTest test
+./mvnw -q -Dtest=AuditoriaAdversarial23ff2bdTest test
+```
+
+Nota: la ficha H3 de `VALIDACION.md` de `4c3cbb8` documentaba el separador de métodos con `+`, que no es sintaxis válida de surefire; la forma correcta es con coma, como arriba.
+
+**Límites que se mantienen:** no se reejecutó la refutación de `23ff2bd` (E4) ni se corrió el experimento cruzado “ambos commits, mismo entorno”: el algoritmo antiguo se confirmó por inspección de `git show`, no por ejecución. La garantía demostrada cubre 8 competidores sincronizados por prefijo en E e IT (y los 4 expedientes HTTP concurrentes de E5); no hay prueba de contención ilimitada ni de timeouts extremos. El HTTP **400** histórico queda como registro del código `23ff2bd`, no del vigente.
+
+**Resultado de esta entrada:** Cierra la contradicción histórica de H3; la ficha vigente pasa a RESUELTO en el alcance probado (≤ 8 competidores). E4 conserva su valor histórico sobre `23ff2bd`.
+
+
+<a id="e8"></a>
+
+## E8 — 2026-09-24 — Codex
+
+**Texto original de esta entrada (delimitación H2):** La anulación de un certificado vigente al registrar `NO_CONFORME` ya queda persistida en el propio `InformeTecnico`: estado `ANULADO`, `fechaAnulacion` y `motivoAnulacion`. El DTO y `GET /api/informes-tecnicos/{id}` exponen esos campos; `GET /api/informes-tecnicos` conserva el informe anulado junto al nuevo. No hizo falta cambiar código funcional ni crear un evento adicional para obtener trazabilidad consultable desde la API.
+
+Evidencia HTTP de la corrida H2 ya registrada en la ficha vigente y E5:
+
+```text
+[200] PATCH /api/revisiones-tecnicas/1/resultado?resultado=NO_CONFORME&observaciones=Falla-confirmada
+{"id":1,"calibracionId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaRevision":"2026-09-24","revisor":"Auditor","resultado":"NO_CONFORME","observaciones":"Falla-confirmada"}
+[200] GET /api/informes-tecnicos/1
+{"id":1,"numero":"IT260901","revisionTecnicaId":1,"instrumentoDescripcion":"Fluke 87V - Serie AUD-d1f6b","fechaEmision":"2026-09-24","estado":"ANULADO","pdfCargado":false,"fechaCargaPdf":null,"fechaEnvio":null,"fechaAnulacion":"2026-09-24","motivoAnulacion":"Reapertura por NO_CONFORME: Falla-confirmada"}
+```
+
+Verificación reproducible del flujo con `./mvnw -q -Dtest=AuditoriaAdversarial23ff2bdTest#respuesta_h2_nuevaRevisionTrasAnularInformePrevio test`. Para la request y response HTTP completas, ejecutar `python3 scripts/respuesta_freebuff_http.py` contra una instancia local con la configuración que describe el script. La inspección del código confirma que `InformeTecnicoService.anularActivos` escribe la fecha y motivo, `InformeTecnicoDTO` los incluye y `InformeTecnicoController` expone ambos GET.
+
+Reejecución local del test focalizado el 2026-09-24, sobre `jdbc:h2:mem:gesminauditoria`:
+
+```text
+$ ./mvnw -q -Dtest=AuditoriaAdversarial23ff2bdTest#respuesta_h2_nuevaRevisionTrasAnularInformePrevio test
+### H2 revisión nueva tras ANULADO: anterior=IT260901, nueva=IT260902
+exit_code=0
+```
+
+La comunicación de una anulación ya enviada se documentó como paso manual: El responsable operativo consulta ese GET y gestiona el aviso fuera de la API conforme al procedimiento de Gesmin. No existe registro de notificación, consumidor automático ni prueba de que el cliente fue avisado. Las tres opciones pendientes son evidencia externa, constancia manual en API o evento persistente con consumidor. Gesmin debe decidir destinatarios, responsable y momento. `API.md` detalla el contrato y `VALIDACION.md` deja H2 abierto por esa decisión.
+
+**Resultado de esta entrada:** H2 tiene anulación consultable por API y recertificación probada; la regla y constancia de comunicación al cliente permanecen abiertas. Esta entrada no cambia H1 ni H3.
+
+<a id="e9"></a>
+
+## E9 — 2026-09-24 — FreeBuff
+
+**Texto original de esta entrada (experimento cruzado H3):** ejecuta el experimento que E6 dejó abierto y E7 cerró solo por inspección: ambos commits corren el mismo test en el mismo entorno. Sonda: `AuditoriaH3Cruzada4c3cbb8Test#cruzado_h3b_cuatroExpedientesMismoPrefijo` (4 expedientes, barrier, prefijo `E26`, sin asserts para poder medir el comportamiento crudo en ambos commits). Base H2 en memoria `gesminh3cruzada` en las dos mitades. Código probado en la mitad vigente: HEAD `328018b`; `git diff 4c3cbb8 HEAD --name-only` solo toca docs y `git diff HEAD -- src/` da 85 archivos con 0 inserciones y 0 borrados (solo fin de línea), más el test cruzado sin commitear.
+
+**Causa de la discrepancia 8/8 vs 3/4 — evidencia de ejecución (3 corridas por commit):**
+
+```text
+23ff2bd / corrida 1: ### CRUZADA H3B exitosos=3/4 nuevos=[1, 2, 3] (baseline=0)
+### CRUZADA H3B FALLO=IllegalStateException/No se pudo asignar un correlativo único tras 3 intentos.
+      [raíz: JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation:
+       "PUBLIC.CONSTRAINT_F INDEX PUBLIC.CONSTRAINT_INDEX_F ON PUBLIC.EXPEDIENTES(NUMERO NULLS FIRST) VALUES ( /* 27 */ 'E260903' )"]
+23ff2bd / corridas 2 y 3: exitosos=3/4 nuevos=[1, 2, 3] (idénticas)
+4c3cbb8 / corridas 1-3: ### CRUZADA H3B exitosos=4/4 nuevos=[1, 2, 3, 4] (idénticas)
+```
+
+Los dos números contradictorios del historial se reproducen a voluntad cambiando únicamente el commit: nunca fueron dos verdades sobre el mismo código. Descartes por ejecución: (a) mismas bases y mismo entorno en ambas mitades del experimento; (b) el barrier alinea de verdad — en el commit viejo hay colisión real `23505` sobre `EXPEDIENTES(NUMERO)` dentro del barrier, es decir contención real, no desincronización; (c) los 4 expedientes compiten por el mismo prefijo `E26` en ambos commits (nuevos `[1..3]` contiguos). Causa real: en `23ff2bd` `generarNumero()` calcula `count()+1` y `CorrelativoRetry` permite 3 intentos sin backoff (con 4 competidores el peor necesita un 4.º intento y agota); en `4c3cbb8` `CorrelativoService.siguiente` serializa con `PESSIMISTIC_WRITE` sobre la fila anual `correlativos_contadores.prefijo` hasta el commit del documento.
+
+**Contención real sobre el código vigente (asserts: ningún commit perdido, sin duplicados, secuencia contigua sin huecos):**
+
+```text
+E  barrier=8,  intentos=3: 6/6 corridas → 8/8 commit, correlativos=[1..8]
+IT barrier=8,  intentos=3: 3/3 corridas → 8/8 commit, correlativos=[1..8]
+E  barrier=24, intentos=3: 3/3 corridas → 24/24 commit, correlativos=[1..24]
+IT barrier=24, intentos=3: 3/3 corridas → 24/24 commit, correlativos=[1..24]
+```
+
+E barrier=8 corrió 6 veces por un artefacto de sintaxis de surefire (ver nota): las 3 invocaciones con `,` corrieron solo E y las 3 con `+` corrieron E e IT. N=24 es 8× el presupuesto de intentos y no se pierde ninguno: el lock serializa y el retry dejó de ser el mecanismo principal. No se encontró el N de fallo en el rango probado (Regla 4: no existe el matiz "funciona salvo cuando N supera X" dentro de lo medido).
+
+**Regresión del vigente en la misma sesión:** `AuditoriaAdversarial23ff2bdTest` 10/10, `AuditoriaH3Cruzada4c3cbb8Test` 5/5, `CorrelativoErrorHttpTest` 1/1 con `### HTTP 409 {"mensaje":"No se pudo asignar un correlativo único tras 3 intentos."}` (reports en `target/surefire-reports/`).
+
+**Nota de reproducibilidad:** surefire no acepta `,` para separar dos métodos de la misma clase: `-Dtest='Clase#m1,m2'` corre un solo método por invocación. La sintaxis válida es `-Dtest='Clase#m1+m2'`.
+
+**Reproducción:**
+
+```bash
+# Sonda en el commit viejo (el test compila igual en ambos commits):
+git worktree add /tmp/gesmin-23ff2bd 23ff2bd
+cp src/test/java/com/kevin/backend/service/AuditoriaH3Cruzada4c3cbb8Test.java /tmp/gesmin-23ff2bd/src/test/java/com/kevin/backend/service/
+cd /tmp/gesmin-23ff2bd && ./mvnw -q -Dtest='AuditoriaH3Cruzada4c3cbb8Test#cruzado_h3b_cuatroExpedientesMismoPrefijo' -Dsurefire.failIfNoSpecifiedTests=false test   # → 3/4
+# Contención vigente, E e IT por separado:
+./mvnw -q -Dtest='AuditoriaH3Cruzada4c3cbb8Test#cruzado_h3_E_N8_superaPresupuestoDeIntentos+cruzado_h3_IT_N8_superaPresupuestoDeIntentos' -Dsurefire.failIfNoSpecifiedTests=false test
+./mvnw -q -Dtest='AuditoriaH3Cruzada4c3cbb8Test#cruzado_h3_E_N24_ochoVecesElPresupuesto+cruzado_h3_IT_N24_ochoVecesElPresupuesto' -Dsurefire.failIfNoSpecifiedTests=false test
+./mvnw -q -Dtest=CorrelativoErrorHttpTest test
+```
+
+Límites: single-JVM contra H2 en memoria (sin multi-nodo ni timeouts de lock); la contención HTTP de E5 y el script `scripts/h3_auditoria_http_4c3cbb8.py` (N=12) no se reejecutaron en E9.
+
+**Resultado de esta entrada:** H3 RESUELTO en el alcance probado (≤ 24 competidores por prefijo, 3 o más corridas por punto, E e IT por separado); contradicción 8/8 vs 3/4 cerrada por ejecución (dos commits, un entorno). La ficha vigente se actualiza en consecuencia.
+
+
+<a id="e10"></a>
+
+## E10 — 2026-09-24 — Codex
+
+**Texto original de esta entrada (corrección de reproducibilidad E9):** Al revisar E9 antes de confirmar los archivos, detecté que sus comandos de contención vigente quedaban dentro del worktree `/tmp/gesmin-23ff2bd` tras ejecutar la sonda antigua. En la ficha H3 vigente agregué `cd -` para volver al checkout actual antes de las pruebas E/IT. El texto de E9 se conserva íntegro por la regla append-only. En `API.md` corregí una mayúscula del paso operativo H2. En el script HTTP auxiliar de FreeBuff reemplacé la comparación fija con `E2609` por el prefijo del año y mes de ejecución, y ahora el veredicto exige secuencias consecutivas E e IT.
+
+Reejecución local sobre el checkout vigente: `./mvnw -q -Dtest=AuditoriaH3Cruzada4c3cbb8Test test`. Salida focal de la corrida:
+
+```text
+### CRUZADA H3 IT barrier=24, intentos=3, resultados=[commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit], correlativos=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+### CRUZADA H3B exitosos=4/4 nuevos=[1, 2, 3, 4] (baseline=0)
+### CRUZADA H3 IT barrier=8, intentos=3, resultados=[commit, commit, commit, commit, commit, commit, commit, commit, commit], correlativos=[25, 26, 27, 28, 29, 30, 31, 32]
+### CRUZADA H3 E barrier=24, intentos=3, resultados=[commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit, commit], correlativos=[5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
+### CRUZADA H3 E barrier=8, intentos=3, resultados=[commit, commit, commit, commit, commit, commit, commit, commit], correlativos=[29, 30, 31, 32, 33, 34, 35, 36]
+Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
+exit_code=0
+```
+
+La corrida también registró `SQLState 23505` solo en `CORRELATIVOS_CONTADORES(PREFIJO)` durante la inicialización paralela, seguido de los commits anteriores.
+
+**Resultado de esta entrada:** Corrige instrucciones de reproducción y comparación del script; no cambia el algoritmo de correlativos ni los resultados históricos de E9.

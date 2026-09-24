@@ -24,9 +24,9 @@
 
 <a id="h2"></a>
 
-## H2 — RESUELTO en el flujo probado
+## H2 — ABIERTO para la comunicación de anulación; trazabilidad y recertificación verificadas
 
-**Regla vigente:** un informe vigente bloquea una revisión ajena. La revisión propietaria puede pasar de `CONFORME` a `NO_CONFORME` con observación: el informe pasa a `ANULADO` y la calibración a `EN_PROCESO`. Tras completar la calibración se puede certificar la misma revisión o crear otra; el informe anterior permanece en el historial y no se descarga.
+**Regla vigente:** un informe vigente bloquea una revisión ajena. La revisión propietaria puede pasar de `CONFORME` a `NO_CONFORME` con observación: el informe pasa a `ANULADO` y la calibración a `EN_PROCESO`. Tras completar la calibración se puede certificar la misma revisión o crear otra; el informe anterior permanece en el historial y no se descarga. El propio informe es el registro de anulación consultable por `GET /api/informes-tecnicos/{id}` (estado, fecha y motivo); no existe un evento separado.
 
 **Evidencia cruda (HTTP):**
 
@@ -46,13 +46,15 @@
 ### H2 revisión nueva tras ANULADO: anterior=IT260916, nueva=IT260917
 ```
 
-**Última verificación:** Codex, 2026-09-24; script HTTP y test `respuesta_h2_nuevaRevisionTrasAnularInformePrevio` sobre `4c3cbb8`. La comunicación al cliente de una anulación ya enviada sigue manual. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E3](HISTORIAL_VALIDACION.md#e3) (SUPERADO por E4/E5) → [E4](HISTORIAL_VALIDACION.md#e4) → [E5](HISTORIAL_VALIDACION.md#e5).
+**Comunicación al cliente — decisión de Gesmin pendiente:** la anulación interna no acredita que el cliente haya sido avisado. El paso operativo actual es que el responsable operativo consulte `GET /api/informes-tecnicos/{id}` y, si el certificado ya se comunicó, gestione el aviso manual fuera de la API. El sistema no envía avisos ni registra constancia de aviso. Gesmin debe elegir entre mantener evidencia externa, añadir constancia manual por API o automatizar con evento persistente y consumidor; también debe fijar destinatarios, responsable y momento. Véase [API.md](API.md#registro-y-comunicación-de-una-anulación-h2).
+
+**Última verificación:** Codex, 2026-09-24; script HTTP y test `respuesta_h2_nuevaRevisionTrasAnularInformePrevio` sobre `4c3cbb8`; inspección del contrato API vigente el 2026-09-24. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E3](HISTORIAL_VALIDACION.md#e3) (SUPERADO por E4/E5) → [E4](HISTORIAL_VALIDACION.md#e4) → [E5](HISTORIAL_VALIDACION.md#e5) → [E8](HISTORIAL_VALIDACION.md#e8).
 
 <a id="h3"></a>
 
-## H3 — ABIERTO: contradicción histórica de evidencia
+## H3 — RESUELTO en el alcance probado (≤ 24 competidores por prefijo, 3/3 corridas)
 
-**Código vigente:** `CorrelativoService.siguiente` bloquea `correlativos_contadores.prefijo` con `PESSIMISTIC_WRITE` en la transacción del documento. Los cuatro tipos E/COI/OT/IT lo usan. Se conserva retry de tres intentos para la carrera de inicialización y errores transitorios.
+**Regla vigente:** `CorrelativoService.siguiente` bloquea la fila anual `correlativos_contadores.prefijo` con `PESSIMISTIC_WRITE` dentro de la transacción del documento (`Propagation.MANDATORY`); el lock se libera solo al confirmar el documento. Los cuatro tipos E/COI/OT/IT lo usan. La carrera de inicialización del contador y errores transitorios se cubren con retry de tres intentos en transacción nueva (`REQUIRES_NEW`); su agotamiento responde **409** vía `CorrelativoAgotadoException`.
 
 **Evidencia cruda, etiquetada por versión:**
 
@@ -62,14 +64,38 @@
 4c3cbb8 / Codex / H3B / gesminauditoria: exitosos=4/4 nuevos=[1, 2, 3, 4]
 4c3cbb8 / Codex / E barrier=8: resultados=[commit, commit, commit, commit, commit, commit, commit, commit], correlativos=[5, 6, 7, 8, 9, 10, 11, 12]
 4c3cbb8 / Codex / IT barrier=8: resultados=[commit, commit, commit, commit, commit, commit, commit, commit], correlativos=[1, 2, 3, 4, 5, 6, 7, 8]
-Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+4c3cbb8 / FreeBuff / H3B+barrier=8 juntos / gesminauditoria: H3B exitosos=4/4 nuevos=[1, 2, 3, 4]; E barrier=8 8/8 commit; IT barrier=8 8/8 commit; suite completa 10/10 OK; HTTP agotamiento=409
+--- E9: experimento cruzado, mismo test (AuditoriaH3Cruzada4c3cbb8Test), misma base gesminh3cruzada, misma sesión ---
+23ff2bd / CRUZADA sonda 4 expedientes barrier: corridas 1-3 = exitosos=3/4 nuevos=[1, 2, 3]; FALLO=IllegalStateException "tras 3 intentos" [raíz: 23505 Unique index ... EXPEDIENTES(NUMERO) VALUES ('E260903')]
+4c3cbb8 / CRUZADA sonda 4 expedientes barrier: corridas 1-3 = exitosos=4/4 nuevos=[1, 2, 3, 4]
+4c3cbb8 / CRUZADA E barrier=8: 6/6 corridas = 8/8 commit, correlativos=[1..8]
+4c3cbb8 / CRUZADA IT barrier=8: 3/3 corridas = 8/8 commit, correlativos=[1..8]
+4c3cbb8 / CRUZADA E barrier=24: 3/3 corridas = 24/24 commit, correlativos=[1..24]
+4c3cbb8 / CRUZADA IT barrier=24: 3/3 corridas = 24/24 commit, correlativos=[1..24]
 ```
 
-**Causa identificada:** no son resultados del mismo código. `23ff2bd` calculaba `count()+1` y reintentaba hasta tres veces; `4c3cbb8` usa una fila anual bloqueada. (a) Sí, las corridas usan bases H2 distintas, pero eso no basta para explicar la diferencia. (b) No: `enParalelo` usa `CyclicBarrier(hebras)`. (c) No: todos los E compiten por `E26` y todos los IT por `IT26`, aunque sus calibraciones sean distintas. Las ocho solicitudes HTTP de E en E5 también respondieron 200 y dieron `E260901`–`E260908`.
+En las corridas del código vigente los únicos `SQLState 23505` ocurren en `CORRELATIVOS_CONTADORES(PREFIJO)` (carrera de inicialización del contador, cubierta por el retry), no en el índice único del documento, que era la colisión real de `23ff2bd`.
 
-**Reproducción del código vigente:** `./mvnw -q -Dtest=AuditoriaAdversarial23ff2bdTest#h3b_cuatroExpedientesSimultaneosColisionRealDeE+respuesta_h3_ochoCompetidoresSuperanTresIntentosEnMismoPrefijo test`.
+**Contradicción histórica cerrada por ejecución (E9):** el mismo test (`AuditoriaH3Cruzada4c3cbb8Test`, sonda sin asserts), la misma base H2 en memoria (`gesminh3cruzada`), el mismo barrier y el mismo prefijo anual reproducen los dos números según el commit: **3/4 en 3 de 3 corridas sobre `23ff2bd`** (con `23505` real sobre `EXPEDIENTES(NUMERO)` dentro del barrier) y **4/4 en 3 de 3 sobre `4c3cbb8`**. Descartes por ejecución, ya no por teoría: (a) mismas bases y mismo entorno en ambas mitades del experimento; (b) el barrier alinea de verdad — el commit viejo colisiona dentro del barrier, es decir hay contención real, no desincronización; (c) los 4 expedientes compiten por el mismo prefijo `E26` en ambos commits. La causa es el algoritmo: `count()+1` con `MAX_INTENTOS=3` sin backoff (con N competidores el peor necesita N intentos y agota) vs. la fila anual `PESSIMISTIC_WRITE` que serializa hasta el commit del documento. Las ocho solicitudes HTTP de E en E5 también respondieron 200 y dieron `E260901`–`E260908`.
 
-**Contradicción abierta:** las afirmaciones opuestas del historial no se borran. Falta comparar ambos commits en un experimento controlado idéntico y probar más de ocho competidores y timeouts extremos; por ello no se declara garantía universal. El HTTP histórico registrado fue **400**, no 500. **Última verificación:** Codex, 2026-09-24, test H3B + barrier=8 juntos sobre `4c3cbb8`; FreeBuff verificó `23ff2bd`. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E3](HISTORIAL_VALIDACION.md#e3) (SUPERADO por E4/E5) → [E4](HISTORIAL_VALIDACION.md#e4) → [E5](HISTORIAL_VALIDACION.md#e5) → [E6](HISTORIAL_VALIDACION.md#e6).
+**Reproducción:**
+
+```bash
+# Experimento cruzado: la sonda (sin asserts) corre igual en ambos commits; 3 corridas por commit.
+git worktree add /tmp/gesmin-23ff2bd 23ff2bd
+cp src/test/java/com/kevin/backend/service/AuditoriaH3Cruzada4c3cbb8Test.java /tmp/gesmin-23ff2bd/src/test/java/com/kevin/backend/service/
+cd /tmp/gesmin-23ff2bd && ./mvnw -q -Dtest='AuditoriaH3Cruzada4c3cbb8Test#cruzado_h3b_cuatroExpedientesMismoPrefijo' -Dsurefire.failIfNoSpecifiedTests=false test   # → 3/4
+cd -  # volver al checkout vigente antes de los tests siguientes
+# Contención vigente, E e IT por separado (N=8 y N=24 > MAX_INTENTOS=3):
+./mvnw -q -Dtest='AuditoriaH3Cruzada4c3cbb8Test#cruzado_h3_E_N8_superaPresupuestoDeIntentos+cruzado_h3_IT_N8_superaPresupuestoDeIntentos' -Dsurefire.failIfNoSpecifiedTests=false test
+./mvnw -q -Dtest='AuditoriaH3Cruzada4c3cbb8Test#cruzado_h3_E_N24_ochoVecesElPresupuesto+cruzado_h3_IT_N24_ochoVecesElPresupuesto' -Dsurefire.failIfNoSpecifiedTests=false test
+./mvnw -q -Dtest='AuditoriaAdversarial23ff2bdTest#h3b_cuatroExpedientesSimultaneosColisionRealDeE+respuesta_h3_ochoCompetidoresSuperanTresIntentosEnMismoPrefijo' test
+./mvnw -q -Dtest=CorrelativoErrorHttpTest test
+```
+
+Nota: surefire no acepta `,` para separar dos métodos de la misma clase (`#m1,m2` corre un solo método); la sintaxis válida es `#m1+m2`.
+
+**Alcance probado y límites:** contención real con barrier de N=8 y N=24 competidores por prefijo (8× el presupuesto de `MAX_INTENTOS=3`) en las rutas E e IT por separado, 3 o más corridas por punto, sin commits perdidos y con correlativos consecutivos sin huecos ni repetidos (verificado por asserts). El experimento cruzado "ambos commits, mismo entorno" ya existe (E9): la refutación de `23ff2bd` quedó reproducida por ejecución, no solo por `git show`. El **409** de agotamiento está probado por `CorrelativoErrorHttpTest`. Límites que se mantienen: single-JVM contra H2 en memoria (sin prueba multi-nodo ni de timeouts de lock); la contención HTTP de E5 (8 requests) y el script `scripts/h3_auditoria_http_4c3cbb8.py` (N=12) no se reejecutaron en E9; sin prueba de contención ilimitada. No se encontró un N de fallo en el rango probado: el lock serializa y el presupuesto de intentos ya no es el límite; **veredicto RESUELTO sin matiz de N** (no hay "funciona salvo cuando N supera X" conocido). Los textos históricos no se borran: [E6](HISTORIAL_VALIDACION.md#e6) mantenía la contradicción abierta, [E7](HISTORIAL_VALIDACION.md#e7) la cerró por inspección y [E9](HISTORIAL_VALIDACION.md#e9) por ejecución. **Última verificación:** FreeBuff, 2026-09-24, experimento cruzado + contención N=8/N=24 sobre `4c3cbb8` (HEAD `328018b`, sin cambios de código). **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E3](HISTORIAL_VALIDACION.md#e3) (SUPERADO por E4/E5) → [E4](HISTORIAL_VALIDACION.md#e4) → [E5](HISTORIAL_VALIDACION.md#e5) → [E6](HISTORIAL_VALIDACION.md#e6) → [E7](HISTORIAL_VALIDACION.md#e7) → [E9](HISTORIAL_VALIDACION.md#e9).
 
 <a id="h4"></a>
 
