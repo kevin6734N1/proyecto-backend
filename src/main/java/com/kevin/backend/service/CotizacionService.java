@@ -22,19 +22,22 @@ public class CotizacionService {
     private final ExpedienteRepository expedienteRepository;
     private final ProductoRepository productoRepository;
     private final ServicioRepository servicioRepository;
+    private final CorrelativoRetry correlativos;
 
     public CotizacionService(CotizacionRepository cotizacionRepository,
                               ClienteRepository clienteRepository,
                               ContactoRepository contactoRepository,
                               ExpedienteRepository expedienteRepository,
                               ProductoRepository productoRepository,
-                              ServicioRepository servicioRepository) {
+                              ServicioRepository servicioRepository,
+                              CorrelativoRetry correlativos) {
         this.cotizacionRepository = cotizacionRepository;
         this.clienteRepository = clienteRepository;
         this.contactoRepository = contactoRepository;
         this.expedienteRepository = expedienteRepository;
         this.productoRepository = productoRepository;
         this.servicioRepository = servicioRepository;
+        this.correlativos = correlativos;
     }
 
     public List<CotizacionDTO> listar() {
@@ -45,8 +48,11 @@ public class CotizacionService {
         return toDTO(buscarEntidadPorId(id));
     }
 
-    @Transactional
     public CotizacionDTO crear(CotizacionDTO dto) {
+        return correlativos.ejecutar(() -> crearUnaVez(dto));
+    }
+
+    private CotizacionDTO crearUnaVez(CotizacionDTO dto) {
         Cliente cliente = clienteRepository.findById(dto.clienteId())
                 .orElseThrow(() -> new RuntimeException("Cliente no encontrado con id " + dto.clienteId()));
 
@@ -75,7 +81,7 @@ public class CotizacionService {
         cotizacion.setDetalles(detalles);
         cotizacion.setMontoTotal(calcularMontoTotal(detalles));
 
-        Cotizacion guardada = cotizacionRepository.save(cotizacion);
+        Cotizacion guardada = cotizacionRepository.saveAndFlush(cotizacion);
         return toDTO(guardada);
     }
 

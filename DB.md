@@ -249,7 +249,7 @@ erDiagram
 
 ## Reglas de negocio verificadas en validación (2026-09-23)
 
-> Sesión adversarial completa en `VALIDACION.md` (125 requests, 13 casos). Resumen de lo que el esquema + services **sí** garantizan y lo que **queda pendiente de parchear**.
+> Sesión adversarial completa en `VALIDACION.md` (125 requests, 13 casos). Resumen histórico de lo que el esquema + services **sí** garantizaban y lo que **quedaba pendiente al 2026-09-23**. El estado actual de H1-H3 figura al final.
 
 ### Verificadas y funcionando
 
@@ -264,7 +264,7 @@ erDiagram
 | Correlativos únicos por UK en todas las tablas (`E/COI/OT/IT`) | colisión concurrente bloqueada por UK (ver hallazgo H3) |
 | Persistencia en archivo entre reinicios + correlativo continuo (no reinicia en 001) | probado con 3 arranques del server |
 
-### Pendiente de parchear (huecos descubiertos)
+### Hallazgos descubiertos el 2026-09-23 (estado histórico)
 
 | # | Hueco | Impacto en datos | Severidad |
 |---|-------|------------------|-----------|
@@ -280,3 +280,7 @@ erDiagram
 ## Archivo firmado fuera de H2 (2026-09-24)
 
 `informes_tecnicos.pdf_cargado` y `fecha_carga_pdf` son metadatos; el PDF firmado real está en `./data/pdf-firmados/{id}.pdf`. Se guarda una sola vez al subirlo por API, y aprobar el informe exige que ese archivo exista. Respaldar la carpeta junto con `gesmin.mv.db`; restaurar solo la base dejaría informes sin su archivo. Cotizaciones, órdenes e informes sin firma se generan dinámicamente desde los datos y no ocupan almacenamiento persistente.
+
+## Estado actualizado de H1-H3 (2026-09-24)
+
+H1 y H2 se controlan en servicios y repositorios sin una nueva restricción de unicidad sobre `revision_tecnica_id`, porque la base de validación previa ya contiene duplicados históricos y `ddl-auto=update` no podría crear esa restricción sin depuración de datos. Se usan bloqueos pesimistas por calibración y comprobaciones de existencia; cualquier informe existente impide otra emisión para esa calibración. H3 reintenta la **operación completa** en transacciones nuevas para los cuatro correlativos. Las filas históricas duplicadas no se borraron ni se modificaron.

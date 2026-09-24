@@ -7,6 +7,7 @@ import com.kevin.backend.model.Instrumento;
 import com.kevin.backend.model.ResultadoRevision;
 import com.kevin.backend.model.RevisionTecnica;
 import com.kevin.backend.repository.CalibracionRepository;
+import com.kevin.backend.repository.InformeTecnicoRepository;
 import com.kevin.backend.repository.RevisionTecnicaRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,14 +20,20 @@ public class RevisionTecnicaService {
 
     private final RevisionTecnicaRepository revisionRepository;
     private final CalibracionRepository calibracionRepository;
+    private final InformeTecnicoRepository informeRepository;
     private final InformeTecnicoService informeTecnicoService;
+    private final CorrelativoRetry correlativos;
 
     public RevisionTecnicaService(RevisionTecnicaRepository revisionRepository,
-                                   CalibracionRepository calibracionRepository,
-                                   InformeTecnicoService informeTecnicoService) {
+                                  CalibracionRepository calibracionRepository,
+                                  InformeTecnicoRepository informeRepository,
+                                  InformeTecnicoService informeTecnicoService,
+                                  CorrelativoRetry correlativos) {
         this.revisionRepository = revisionRepository;
         this.calibracionRepository = calibracionRepository;
+        this.informeRepository = informeRepository;
         this.informeTecnicoService = informeTecnicoService;
+        this.correlativos = correlativos;
     }
 
     public List<RevisionTecnicaDTO> listarPorCalibracion(Long calibracionId) {
@@ -39,13 +46,19 @@ public class RevisionTecnicaService {
 
     @Transactional
     public RevisionTecnicaDTO crear(RevisionTecnicaDTO dto) {
-        Calibracion calibracion = calibracionRepository.findById(dto.calibracionId())
+        Calibracion calibracion = calibracionRepository.findByIdForUpdate(dto.calibracionId())
                 .orElseThrow(() -> new RuntimeException("Calibración no encontrada con id " + dto.calibracionId()));
 
         if (calibracion.getEstado() != EstadoCalibracion.COMPLETADA) {
             throw new IllegalArgumentException(
-                "No se puede revisar: la calibración debe estar COMPLETADA (estado actual: " + calibracion.getEstado() + ")."
-            );
+                    "No se puede revisar: la calibración debe estar COMPLETADA (estado actual: "
+                            + calibracion.getEstado() + ").");
+        }
+        // Un informe generado ya representa el resultado conforme de esta calibración.
+        // Una reemisión requiere un flujo explícito, no otra revisión sobre el mismo trabajo.
+        if (informeRepository.existsByCalibracionId(calibracion.getId())) {
+            throw new IllegalArgumentException(
+                    "No se puede crear otra revisión: esta calibración ya tiene un informe técnico.");
         }
 
         RevisionTecnica revision = new RevisionTecnica();
@@ -54,32 +67,50 @@ public class RevisionTecnicaService {
         revision.setRevisor(dto.revisor());
         revision.setResultado(ResultadoRevision.PENDIENTE);
         revision.setObservaciones(dto.observaciones());
-
         return toDTO(revisionRepository.save(revision));
     }
 
     /**
-     * Registra el resultado de la revisión.
-     * NO_CONFORME -> la Calibracion vuelve a EN_PROCESO para corregir (misma calibración, sin crear una nueva).
-     * CONFORME -> se genera automáticamente el InformeTecnico (certificado) con correlativo.
+     * El reintento abarca resultado de revisión + efecto sobre calibración + informe.
+     * Si colisiona el correlativo IT, todo se revierte antes del siguiente intento.
      */
-    @Transactional
     public RevisionTecnicaDTO registrarResultado(Long id, ResultadoRevision resultado, String observaciones) {
-        RevisionTecnica revision = buscarEntidadPorId(id);
-        revision.setResultado(resultado);
-        if (observaciones != null) {
-            revision.setObservaciones(observaciones);
+        return correlativos.ejecutar(() -> registrarResultadoUnaVez(id, resultado, observaciones));
+    }
+
+    private RevisionTecnicaDTO registrarResultadoUnaVez(Long id, ResultadoRevision resultado, String observaciones) {
+        Long calibracionId = revisionRepository.findCalibracionIdById(id)
+                .orElseThrow(() -> new RuntimeException("Revisión técnica no encontrada con id " + id));
+        Calibracion calibracion = calibracionRepository.findByIdForUpdate(calibracionId)
+                .orElseThrow(() -> new RuntimeException("Calibración no encontrada con id " + calibracionId));
+        RevisionTecnica revision = revisionRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new RuntimeException("Revisión técnica no encontrada con id " + id));
+
+        if (revision.getResultado() == resultado) {
+            return toDTO(revision); // PATCH repetido: no cambia observaciones ni crea otro informe.
         }
+        if (revision.getResultado() != ResultadoRevision.PENDIENTE || resultado == ResultadoRevision.PENDIENTE) {
+            throw new IllegalArgumentException("El resultado de una revisión solo puede registrarse una vez.");
+        }
+        if (calibracion.getEstado() != EstadoCalibracion.COMPLETADA) {
+            throw new IllegalArgumentException("La calibración debe estar COMPLETADA para registrar la revisión.");
+        }
+        if (resultado == ResultadoRevision.CONFORME
+                && informeRepository.existsByCalibracionId(calibracionId)) {
+            throw new IllegalArgumentException(
+                    "Esta calibración ya tiene un informe técnico; no se puede emitir otro.");
+        }
+
+        revision.setResultado(resultado);
+        if (observaciones != null) revision.setObservaciones(observaciones);
         revisionRepository.save(revision);
 
-        Calibracion calibracion = revision.getCalibracion();
         if (resultado == ResultadoRevision.NO_CONFORME) {
             calibracion.setEstado(EstadoCalibracion.EN_PROCESO);
             calibracionRepository.save(calibracion);
         } else if (resultado == ResultadoRevision.CONFORME) {
             informeTecnicoService.generarDesdeRevision(revision);
         }
-
         return toDTO(revision);
     }
 

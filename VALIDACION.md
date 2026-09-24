@@ -167,3 +167,22 @@ La validación de 2026-09-23 anterior es histórica. El endpoint marcador `PATCH
 **Alcance:** la cotización es un borrador descargable porque el modelo no tiene moneda, IGV, forma de pago, asesor ni cuentas bancarias. La orden carece de cantidad/producto por actividad y de firmas reales. El Informe Técnico usa el ejemplo entregado como referencia provisional para el documento final; aún falta el formato específico de Certificado de Calibración. El backend almacena el PDF que el usuario afirma firmado, pero no verifica firmas criptográficas y no envía correos. No se hicieron pruebas E2E HTTP contra la base persistida en esta actualización.
 
 **Persistencia:** el PDF firmado se guarda en `./data/pdf-firmados/{id}.pdf`, fuera de Git. Un respaldo debe incluir tanto `./data/gesmin.mv.db` como `./data/pdf-firmados/`. Los informes de la validación previa marcados con el antiguo booleano no tendrán archivo real y no podrán aprobarse hasta resolverlos de forma explícita.
+
+---
+
+## Actualización 2026-09-24 — H1, H2 y H3
+
+Los casos y datos de la corrida del 2026-09-23 arriba permanecen como evidencia histórica. Los siguientes resultados son de pruebas nuevas sobre H2 **en memoria**; no se reejecutaron los 125 requests ni se modificó la base persistida de desarrollo.
+
+| Caso | Resultado |
+|---|---|
+| H1: repetir `CONFORME` sobre la misma revisión | Solo existe un informe para la revisión; el segundo PATCH conserva el resultado y las observaciones originales. |
+| H1 concurrente: dos `CONFORME` simultáneos sobre la misma revisión | Ambos terminan `CONFORME`, pero se genera un solo informe. La calibración se bloquea durante la operación. |
+| H2: otra revisión tras generar un informe | Rechazada incluso antes de aprobar/enviar el informe. Una revisión `PENDIENTE` antigua tampoco puede generar un segundo IT para esa calibración. |
+| Ciclo `NO_CONFORME` | La calibración vuelve a `EN_PROCESO`; después de corregirla y completarla se puede crear otra revisión. |
+| H3: reintento tras rollback | El primer intento falla de forma simulada, su inserción revierte y el segundo empieza una transacción limpia. |
+| H3: dos creaciones concurrentes por tipo | Expedientes, cotizaciones, OT e informes sobre **calibraciones distintas** obtuvieron números diferentes y ambas operaciones terminaron correctamente. |
+
+`./mvnw -q -Dspring.datasource.url=jdbc:h2:mem:gesminfix test` → **10 tests, 0 fallos**. El antiguo `validation/correlativos.sh` usaba dos revisiones de la **misma** calibración: ahora ese caso debe terminar con una sola emisión por H2. Para probar H3 se requieren dos calibraciones distintas, como en la prueba de integración nueva.
+
+**Implementación:** las creaciones de E, COI y OT y el registro de resultado que genera IT se reintentan por completo dentro de `TransactionTemplate`, con una transacción nueva por intento (máximo 3). La revisión y el informe permanecen atómicos. El informe también verifica si su revisión ya tiene uno antes de guardarse.

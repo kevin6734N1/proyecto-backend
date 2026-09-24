@@ -8,6 +8,7 @@ import com.kevin.backend.model.RevisionTecnica;
 import com.kevin.backend.repository.InformeTecnicoRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -32,15 +33,18 @@ public class InformeTecnicoService {
         return toDTO(buscarEntidadPorId(id));
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public InformeTecnico generarDesdeRevision(RevisionTecnica revision) {
+        if (informeTecnicoRepository.existsByRevisionTecnicaId(revision.getId())) {
+            throw new IllegalArgumentException("Esta revisión ya tiene un informe técnico.");
+        }
         InformeTecnico informe = new InformeTecnico();
         informe.setRevisionTecnica(revision);
         informe.setFechaEmision(LocalDate.now());
         informe.setEstado(EstadoInforme.GENERADO);
         informe.setPdfCargado(false);
         informe.setNumero(generarNumero());
-        return informeTecnicoRepository.save(informe);
+        return informeTecnicoRepository.saveAndFlush(informe);
     }
 
     @Transactional

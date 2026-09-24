@@ -16,10 +16,13 @@ public class ExpedienteService {
 
     private final ExpedienteRepository expedienteRepository;
     private final ClienteRepository clienteRepository;
+    private final CorrelativoRetry correlativos;
 
-    public ExpedienteService(ExpedienteRepository expedienteRepository, ClienteRepository clienteRepository) {
+    public ExpedienteService(ExpedienteRepository expedienteRepository, ClienteRepository clienteRepository,
+                             CorrelativoRetry correlativos) {
         this.expedienteRepository = expedienteRepository;
         this.clienteRepository = clienteRepository;
+        this.correlativos = correlativos;
     }
 
     public List<ExpedienteDTO> listar() {
@@ -33,6 +36,10 @@ public class ExpedienteService {
     }
 
     public ExpedienteDTO crear(Long clienteId) {
+        return correlativos.ejecutar(() -> crearUnaVez(clienteId));
+    }
+
+    private ExpedienteDTO crearUnaVez(Long clienteId) {
         Cliente cliente = clienteRepository.findById(clienteId)
                 .orElseThrow(() -> new RuntimeException("Cliente no encontrado con id " + clienteId));
 
@@ -42,7 +49,7 @@ public class ExpedienteService {
         expediente.setCliente(cliente);
         expediente.setEstado(EstadoExpediente.EN_PROCESO);
 
-        return toDTO(expedienteRepository.save(expediente));
+        return toDTO(expedienteRepository.saveAndFlush(expediente));
     }
 
     public ExpedienteDTO cambiarEstado(Long id, EstadoExpediente nuevoEstado) {

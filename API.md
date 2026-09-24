@@ -226,6 +226,7 @@ PUT /api/calibraciones/1/mediciones
 > - Solo se puede crear una revisión si la calibración está **`COMPLETADA`**.
 > - **`NO_CONFORME`** → la calibración vuelve a `EN_PROCESO` (loop de corrección: se registran mediciones de nuevo → `COMPLETADA` → nueva revisión). La misma revisión NO se reusa: se crea otra.
 > - **`CONFORME`** → se genera **automáticamente** un `InformeTecnico` con correlativo.
+> - Repetir `CONFORME` sobre la misma revisión no genera otro informe. Una calibración que ya tiene un informe no admite otra revisión ni otro resultado `CONFORME`; la reemisión aún no está definida.
 
 ### Informes técnicos (certificados) — `/api/informes-tecnicos`
 | Método | Ruta | Body |
@@ -341,15 +342,17 @@ curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 | `NO_APTO` en evaluación → OT pasa a `EN_ESPERA_CLIENTE` automáticamente | 200, verificar `estado` de la OT |
 | Calibración sobre evaluación `NO_APTO` | 400 con `mensaje` |
 | Informe `APROBADO → ENVIADO` registra `fechaEnvio` | 200 |
-| Correlativos únicos (`COI/OT/IT/E`) garantizados por unique constraint | — |
+| Correlativos `COI/OT/IT/E` | Reintento transaccional ante colisión; si se agotan 3 intentos, 400 con `mensaje`. |
+| `PATCH` repetido `CONFORME` en la misma revisión | 200, sin generar otro informe ni cambiar observaciones. |
+| Nueva revisión tras un informe de la calibración | 400 con `mensaje`, incluso si el informe sigue `GENERADO`. |
 | Idempotencia de PATCH con el mismo estado | 200, misma representación |
 
-### 10.2 Reglas que el backend AÚN NO defiende — tu UI debe proteger al usuario mientras parchamos
+### 10.2 Reglas todavía pendientes
+
+H1 y H2 quedaron resueltos en el backend. La UI puede seguir deshabilitando botones ya usados para dar claridad, pero no necesita cruzar informes y revisiones para impedir la duplicación.
 
 | # | Hueco | Riesgo en la UI | Workaround sugerido mientras tanto |
 |---|---|---|---|
-| A | **Re-patchear CONFORME sobre una revisión genera OTRO informe** (duplicado de certificado). No hay guard. | Si el botón "Registrar CONFORME" queda habilitado después de aplicado, cada click = un certificado nuevo. | Deshabilitar el PATCH de resultado cuando `resultado !== 'PENDIENTE'`. Mostrar el resultado como solo-lectura una vez registrado. |
-| B | **Sin guard post-ENVIADO**: una calibración con certificado ya ENVIADO acepta nuevas revisiones CONFORME y genera otro certificado. | Podés permitir "re-certificar" un instrumento sin querer. | Si la calibración ya tiene un informe en estado `ENVIADO`, ocultar/bloquear la creación de nuevas revisiones (consultá `GET /informes-tecnicos` y cruzá por `revisionTecnicaId` → revisión → `calibracionId`). |
 | C | Los PATCH de estado de cotización, OT, calibración y expediente aún permiten saltos o regresiones. **El informe ya exige PDF real → aprobación → envío.** | Un combo libre puede generar estados inconsistentes en los otros módulos. | Ofrecé solo las transiciones que correspondan en cada pantalla. Para el informe usa carga multipart, luego `APROBADO` y después `ENVIADO`. |
 | D | **El cierre de expediente no valida nada**: se puede cerrar con OTs sin completar, evaluaciones `NO_APTO` sin respuesta del cliente, o informes nunca enviados. También se reabre un CERRADO con un PATCH. | El expediente puede quedar "CERRADO" con trabajo pendiente adentro. | Antes de ofrecer el botón "Cerrar expediente", validá del lado del frontend que sus OTs estén `COMPLETADA`/`CANCELADA` y que no queden evaluaciones `PENDIENTE`/`NO_APTO` sin respuesta. Confirmar con Gesmin si hace falta alguna regla real aquí. |
 | E | **Revisiones simultáneas sobre la misma calibración se permiten** (y las `PENDIENTE` no reclamadas quedan huérfanas para siempre). | Dos usuarios podrían crear revisiones en paralelo y una queda sin usar. | Deshabilitá "Nueva revisión" si la calibración ya tiene una revisión con `resultado = PENDIENTE` (`GET /revisiones-tecnicas?calibracionId=X`). |
@@ -357,10 +360,10 @@ curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 ### 10.3 Errores: recordatorios verificados
 
 - "No encontrado" sigue devolviendo **400 (no 404)** con `{"mensaje": "..."}` — verificado en clientes, calibraciones e informes.
-- Bajo concurrencia real es posible recibir un 400 con **stacktrace de H2** (violación de unique) al generar dos certificados a la vez. Es raro en uso normal, pero si tu interceptor ve un 400 sin `mensaje`, mostrá un error genérico "intente de nuevo" en vez de reventar.
+- Los correlativos se reintentan hasta 3 veces en transacciones separadas. Si se agotan los intentos, se devuelve 400 con `mensaje` legible.
 - No hay `POST /informes-tecnicos`: los informes **solo** nacen automáticamente de una revisión CONFORME (405 si lo intentás).
 
-> A, B, D y E siguen pendientes. C sigue pendiente para cotización, OT, calibración y expediente; el informe ya valida su secuencia.
+> C, D y E siguen pendientes. H1, H2 y H3 ya tienen guardas y pruebas; C sigue pendiente para cotización, OT, calibración y expediente.
 
 ---
 
@@ -389,3 +392,11 @@ curl -F "archivo=@informe-firmado.pdf;type=application/pdf" "$B/informes-tecnico
 curl -X PATCH "$B/informes-tecnicos/1/estado?estado=APROBADO"
 curl -o informe-firmado.pdf "$B/informes-tecnicos/1/pdf-firmado"
 ```
+
+---
+
+## 12. H1, H2 y H3 corregidos (2026-09-24)
+
+- Repetir `PATCH /api/revisiones-tecnicas/{id}/resultado?resultado=CONFORME` devuelve la revisión existente sin generar otro IT ni cambiar sus observaciones. Cambiar un resultado final por otro devuelve 400.
+- Crear una revisión o registrar `CONFORME` para otra revisión de una calibración que ya tiene cualquier informe devuelve 400. Esto aplica desde `GENERADO`; no hay flujo de reemisión definido. El ciclo `NO_CONFORME → EN_PROCESO → nueva revisión` continúa disponible.
+- Si coinciden dos operaciones que asignan códigos `E`, `COI`, `OT` o `IT`, se reintenta toda la creación en una transacción nueva hasta 3 veces. La revisión y su informe se confirman o revierten juntos; una colisión no debe dejar la revisión `CONFORME` sin informe.

@@ -17,11 +17,14 @@ public class OrdenDeTrabajoService {
 
     private final OrdenDeTrabajoRepository ordenDeTrabajoRepository;
     private final CotizacionRepository cotizacionRepository;
+    private final CorrelativoRetry correlativos;
 
     public OrdenDeTrabajoService(OrdenDeTrabajoRepository ordenDeTrabajoRepository,
-                                  CotizacionRepository cotizacionRepository) {
+                                  CotizacionRepository cotizacionRepository,
+                                  CorrelativoRetry correlativos) {
         this.ordenDeTrabajoRepository = ordenDeTrabajoRepository;
         this.cotizacionRepository = cotizacionRepository;
+        this.correlativos = correlativos;
     }
 
     public List<OrdenDeTrabajoDTO> listar() {
@@ -32,8 +35,11 @@ public class OrdenDeTrabajoService {
         return toDTO(buscarEntidadPorId(id));
     }
 
-    @Transactional
     public OrdenDeTrabajoDTO crear(OrdenDeTrabajoDTO dto) {
+        return correlativos.ejecutar(() -> crearUnaVez(dto));
+    }
+
+    private OrdenDeTrabajoDTO crearUnaVez(OrdenDeTrabajoDTO dto) {
         Cotizacion cotizacion = cotizacionRepository.findById(dto.cotizacionId())
                 .orElseThrow(() -> new RuntimeException("Cotización no encontrada con id " + dto.cotizacionId()));
 
@@ -68,7 +74,7 @@ public class OrdenDeTrabajoService {
         }
         orden.setDetalles(detalles);
 
-        OrdenDeTrabajo guardada = ordenDeTrabajoRepository.save(orden);
+        OrdenDeTrabajo guardada = ordenDeTrabajoRepository.saveAndFlush(orden);
         return toDTO(guardada);
     }
 
