@@ -322,7 +322,7 @@ curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 
 1. **Formato de certificado de calibración**: por ahora el PDF generado usa el Informe Técnico compartido como referencia visual provisional. Falta el ejemplo del certificado específico.
 2. **Sin usuarios ni login**: `tecnico`, `revisor`, `ejecutor` son texto libre. Cuando exista el módulo Usuario/Permisos, estos campos pasarán a referencias y probablemente habrá auth (JWT/session).
-3. **Errores 400 vs 404**: errores de negocio o "no encontrado" llegan como 400 con `{"mensaje": "..."}`; un agotamiento de reintentos de correlativo llega como 409 con el mismo campo. Centraliza el manejo en tu fetch/axios interceptor.
+3. **Errores HTTP**: errores de negocio o "no encontrado" llegan como 400 con `{"mensaje": "..."}`; un agotamiento de reintentos de correlativo llega como 409. Un fallo inesperado del servidor llega como 500 con `{"mensaje":"Error interno del servidor."}` y el detalle queda solo en el log. Los 400 de parámetros obligatorios y los 404 de rutas inexistentes usan el body de Spring sin campo `trace`. Centraliza el manejo en tu fetch/axios interceptor.
 4. ~~**Datos volátiles**: H2 en memoria.~~ **Resuelto (2026-09-23):** la BD ahora está en archivo (`jdbc:h2:file:./data/gesmin`) y persiste entre reinicios. Verificado con reinicios reales del server en [historial E1](HISTORIAL_VALIDACION.md#e1).
 5. **CORS fijo a puerto 5175**: coordina con Kevin si tu frontend corre en otro puerto/origen.
 
@@ -369,7 +369,7 @@ El backend compara resultado y observaciones, y anula el certificado vigente ant
 
 ## 11. PDF generados y PDF firmado (2026-09-24)
 
-Los tres reportes se generan y guardan una vez al crear la cotización, OT o informe técnico. Son snapshots: los cambios de estado posteriores no modifican esos archivos. Cada GET sirve el PDF guardado; si falta (registro antiguo o fallo de escritura), lo genera al vuelo como respaldo. Antes de servir un archivo guardado, el backend comprueba que el registro aún exista; un archivo residual de una cotización u OT eliminada no es descargable. El registro en BD permanece creado aunque falle el guardado del PDF. No hay que subir archivo para cotización u orden. Cada GET responde `application/pdf` con `Content-Disposition: attachment`; en React/axios usa `responseType: "blob"`.
+Los PDF de cotización, OT e informe técnico sin firma se generan **una sola vez al crear el registro** y se guardan como snapshots inmutables en `./data/pdf-generados/`; los cambios posteriores no modifican esos archivos. Cada GET sirve el archivo persistido si existe. Si falta (dato antiguo, fallo de escritura o borrado manual), el GET regenera el PDF al vuelo **con los datos actuales de la BD** y lo devuelve, pero **no vuelve a escribirlo en disco**: el snapshot original no se restaura. Antes de servir un archivo guardado, el backend comprueba que el registro aún exista; un archivo residual de una cotización u OT eliminada no es descargable. El registro en BD permanece creado aunque falle el guardado del PDF. Si se reinicia solo la BD y se reutilizan IDs, hay que coordinar también `./data/pdf-generados/` para que un registro nuevo no reciba el snapshot viejo de otro. No hay que subir archivo para cotización u orden. Cada GET responde `application/pdf` con `Content-Disposition: attachment`; en React/axios usa `responseType: "blob"`.
 
 | Documento | Endpoint | Cuándo existe |
 |---|---|---|

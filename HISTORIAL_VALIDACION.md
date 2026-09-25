@@ -806,3 +806,132 @@ exit_code=0
 **Límite que permanece:** el nombre del PDF está fijado por tipo e ID, como pidió Gesmin. Si se reinicia la base y se reutiliza el mismo ID mientras subsiste una carpeta de PDFs vieja, la comprobación de existencia no detecta que el archivo pertenece a otro registro. Base y carpeta `pdf-generados` deben restaurarse o limpiarse juntas; se documentó en `DB.md`. E12 queda íntegra como registro del primer commit, y esta entrada añade la corrección.
 
 **Resultado de esta entrada:** los GET de cotización y OT ya no sirven PDFs residuales de registros ausentes; resta la coordinación operativa de respaldos ante reutilización de IDs.
+
+<a id="e14"></a>
+
+## E14 — 2026-09-25 — FreeBuff
+
+**Auditoría independiente del estado VIGENTE (`4385bca` = cb5a844 + 4385bca, sobre la base documentada `1183d19` / E12+E13).** Esta entrada NO acepta el informe de Codex como prueba: cada punto se re-verificó con (a) lectura directa de código con archivo:línea, (b) corrida HTTP end-to-end contra el server real (`./mvnw spring-boot:run`, base `./data/gesmin`, log completo en `validation/e14_http.log` + focalizadas `validation/e14b_http.log`, `validation/e14c_http.log`, `validation/e14d_http.log`, scripts en `validation/auditoria_e14_freebuff.sh` y `validation/e14*_followup.sh`), y (c) re-ejecución de la suite completa. Checkout verificado: `git log --oneline -3` = 4385bca / cb5a844 / 1183d19 y `git diff HEAD --shortstat` sin cambios de contenido (solo modos de archivo y borrado de `AUDITORIA_23ff2bd.md`).
+
+**Suite completa (re-ejecutada):**
+
+```text
+$ ./mvnw test
+classes=12 tests=38 failures=0 errors=0 skipped=0
+exit_code=0
+```
+
+Coincide con lo declarado por Codex en E12/E13 (12/38/0). Los veredictos de E11/E12 sobre H1/H3 no se reabrieron por Regla 2 (sin regresión de código en esas zonas); sus tests (`AuditoriaH3Cruzada4c3cbb8Test`, `AuditoriaAdversarial23ff2bdTest`, `HallazgosConcurrenciaTest`, `CorrelativoErrorHttpTest`) pasaron dentro de la suite, incluida la cruzada N=8/N=24 con 8/8 y 24/24 commits y correlativos consecutivos.
+
+**Verificación por HTTP (extractos; el rastro completo está en los logs):**
+
+```text
+== PDF (A2/E13)
+EXISTS data/pdf-generados/cotizacion-2.pdf (1706 bytes)
+EXISTS data/pdf-generados/orden-trabajo-2.pdf (1711 bytes)
+EXISTS data/pdf-generados/informe-tecnico-8-sin-firma.pdf (1982 bytes)
+[200] GET /api/cotizaciones/2/pdf ; mtime 1790365408 -> 1790365408 (SIN regeneracion)
+[200] GET tras borrar archivo a mano; PDF valido servido (fallback; NO reescribe en disco)
+[400] GET /api/cotizaciones/999999/pdf {"mensaje":"Cotización no encontrada con id 999999"}
+[400] GET /api/ordenes-trabajo/999999/pdf {"mensaje":"Orden de trabajo no encontrada con id 999999"}
+[400] GET /api/informes-tecnicos/999999/pdf {"mensaje":"Informe técnico no encontrado con id 999999"}
+
+== H9 (A1)
+== data/pdf-firmados convertido en archivo regular (fallo REAL de disco, logica de negocio intacta)
+[HTTP 400] POST /api/informes-tecnicos/8/pdf-firmado (fallo REAL de disco)
+{"mensaje":"No se pudo almacenar el PDF firmado."}
+[HTTP 400] POST /api/informes-tecnicos/999999/pdf-firmado {"mensaje":"Informe técnico no encontrado con id 999999"}   (control de negocio)
+
+== Estados (A3)
+[400] PATCH OT PENDIENTE->EN_ESPERA_CLIENTE {"mensaje":"Transición de estado no permitida: PENDIENTE -> EN_ESPERA_CLIENTE."}
+[200] PATCH OT PENDIENTE->EN_PROCESO ; [200] PATCH OT EN_PROCESO->COMPLETADA
+[400] PATCH OT COMPLETADA->CANCELADA {"mensaje":"Transición de estado no permitida: COMPLETADA -> CANCELADA."}
+[200] PATCH evaluacion NO_APTO -> GET OT estado=EN_ESPERA_CLIENTE
+[400] PATCH OT EN_ESPERA_CLIENTE->PENDIENTE {"mensaje":"Transición de estado no permitida: EN_ESPERA_CLIENTE -> PENDIENTE."}
+[200] POST respuesta-cliente autoriza -> nueva evaluacion PENDIENTE; GET OT estado=PENDIENTE
+[200] PATCH nueva evaluacion APTO -> GET OT estado=EN_PROCESO   (loop NO_APTO vivo, HTTP real)
+[400] PATCH COI APROBADA->RECHAZADA con OT viva {"mensaje":"No se puede cambiar la cotización aprobada: ya tiene una Orden de Trabajo asociada."}
+[200] PATCH calibracion COMPLETADA->EN_PROCESO (loop NO_CONFORME intacto)
+[400] PATCH CERRADO->EN_PROCESO {"mensaje":"Transición de estado no permitida: CERRADO -> EN_PROCESO."}
+
+== H16 (A4)
+[400] PATCH expediente ACEPTADO -> fallo de conversion de enum (ACEPTADO fuera del enum)
+== H6 (B3)
+[201] POST revision {"id":75,"calibracionId":35,...,"resultado":"PENDIENTE"}
+[201] POST revision {"id":76,"calibracionId":35,...,"resultado":"PENDIENTE"}   (misma calibracion sin informe activo)
+== H2 (B4)
+[200] PATCH revision CONFORME->NO_CONFORME
+{"id":8,...,"estado":"ANULADO","fechaAnulacion":"2026-09-25","motivoAnulacion":"Reapertura por NO_CONFORME: Falla-E14"}
+[400] GET /api/informes-tecnicos/8/pdf {"mensaje":"El informe fue anulado y no está disponible para descarga."}
+== H8 (B5)
+[400] GET /api/clientes/999999 ; [400] GET /api/cotizaciones/999999 ; [400] GET /api/ordenes-trabajo/999999
+```
+
+**Veredictos de esta auditoría (resumen):**
+
+- **H9 CONFIRMADO (CRÍTICO, sigue ABIERTO):** `GlobalExceptionHandler.java:30-36` captura toda `RuntimeException` → 400. Corrida real: fallo de disco del certificado respondido 400 (ficha actualizada en `VALIDACION.md`). El test `HallazgoH9RamasHandlerTest` demuestra el problema (mismo 400 para negocio y bug de servidor) y documenta las ramas; no lo corrige.
+- **Feature PDF E12/E13 VERIFICADA, sin regresiones:** los 3 PDF se persisten al crear (después de `correlativos.ejecutar`, fuera de la transacción de retry: `CotizacionService.java:59-62`, `OrdenDeTrabajoService.java:43-46`, `RevisionTecnicaService.java:80-88`), el GET sirve el snapshot sin regenerar, hay fallback al vuelo, E13 impide servir residuos y el snapshot no se regenera al cambiar estado. Ficha nueva "Feature E12/E13" en `VALIDACION.md`.
+- **Máquina de estados (H4/H13/H15) VERIFICADA por código + HTTP:** tablas `ORDEN_INTERNA` (`TransicionesEstado.java:24-29`) y `ORDEN_PATCH` (`:31-36`) separadas y usadas por la puerta correcta (`EvaluacionAptitudService.java:71/75/114/121`, `OrdenDeTrabajoService.java:92`). COMPLETADA y CERRADO terminales; calibración conserva `COMPLETADA → EN_PROCESO`; H15 con guard (`CotizacionService.java:102-108`). Loop NO_APTO vivo (HTTP real, E14b/E14c).
+- **H16 CONFIRMADO RESUELTO:** `EstadoExpediente.java` sin `ACEPTADO`; grep de repo sin referencias en `src/`; PATCH con `ACEPTADO` rechazado por conversión de enum.
+- **H5 PARCIAL re-confirmado:** `CERRADO` no reabre (HTTP 400), sin guards cruzados (el expediente 2 se cerró con OTs 2/3/4 vivas PENDIENTE/EN_PROCESO/COMPLETADA); decisión de Gesmin sobre OT CANCELADA respetada; el resto de controles sigue sin regla.
+- **H14 SUPERADO re-confirmado:** PATCH `EN_PROCESO → COMPLETADA` funciona (HTTP 200) y ningún flujo automático escribe ese estado (única escritura en el PATCH; evaluación solo usa EN_ESPERA_CLIENTE/EN_PROCESO/PENDIENTE/CANCELADA).
+- **H10/H11 ABIERTOS (lectura re-verificada):** ALTER TABLE crudo en cada arranque (`InformeEstadoSchemaMigration.java:22-23`) sin Flyway/Liquibase en `pom.xml`; un único `application.properties` con ddl-auto=update (línea 8), consola H2 (líneas 11-13) y `web-allow-others=true`, sin perfiles.
+- **H12 ABIERTO (no re-ejecutado por corrida):** `CorrelativoService.java:27-31` sigue inicializando solo con `COUNT()` (`historicos.getAsLong()`, línea 29) sin resync posterior; la colisión demostrada en E11 no se reprodujo aquí porque el código de esa zona no cambió (verificado por diff), pero la evidencia vigente sigue siendo la corrida E11.
+- **H2 sin roturas:** anulación por `NO_CONFORME` deja constancia interna (estado, fecha, motivo) y bloquea la descarga del PDF anulado; no existe ningún código de notificación (grep de `notif/email/correo` en `src/main/java`: solo campos de contacto; `pom.xml` sin starter-mail). Alcance manual de Gesmin respetado.
+- **H17 NUEVO (MEDIA, confirmado por corrida):** errores de binding y de routing exponen el stack trace en el body (`"trace"` completo en 400 de `MissingServletRequestParameterException` y en 404 de `NoResourceFoundException`); corregible con `server.error.include-stacktrace=never` o manejando esas excepciones en el handler. Ficha en `VALIDACION.md`.
+
+**Límites de esta auditoría:** H12 no se re-corrió (borrado de fila + contador); la cruzada de H3 y la contención N=24 no se re-ejecutaron fuera de la suite estándar; el fallback de PDF verificado por HTTP cubre borrado de archivo, no fallo de permisos de disco post-commit; las corridas se hicieron sobre la base de desarrollo `./data/gesmin` con registros nuevos prefijados E14 (no se modificaron registros ajenos; el único artefacto tocado, `data/pdf-firmados`, fue restaurado).
+
+**Resultado de esta entrada:** ninguna regresión de E12/E13; H9 sigue siendo el único crítico y permanece abierto; se agrega H17; `VALIDACION.md` actualizado con las re-verificaciones y la ficha de la feature PDF.
+
+
+<a id="e15"></a>
+
+## E15 — 2026-09-25 — Codex
+
+**Texto original de esta entrada (H9 + H17 y documentación del fallback de PDF):** Sobre la base `4385bca` y la auditoría E14 de FreeBuff, `GlobalExceptionHandler` ahora reserva 400 para `IllegalArgumentException` y `MethodArgumentNotValidException`, conserva 409 para `CorrelativoAgotadoException` y devuelve 500 para las demás `RuntimeException`. El 500 contiene solo `{"mensaje":"Error interno del servidor."}`; el stack se registra mediante `logger.error`. En la configuración por defecto se añadieron `server.error.include-stacktrace=never` y `server.error.include-message=always`. No se agregaron perfiles, migraciones ni cambios a la lógica de PDF, estados o correlativos.
+
+**Fallback de PDF documentado:** `API.md` y `DB.md` explican que los PDF de cotización, OT e informe se generan una sola vez al crear cada registro y quedan en `./data/pdf-generados/` como snapshots. El GET sirve el archivo persistido. Si falta por antigüedad, fallo de escritura o borrado, regenera desde los datos **actuales** de la BD y entrega el PDF **sin volver a escribirlo en disco**. La BD y la carpeta deben reiniciarse/restaurarse coordinadamente, porque un ID reutilizado puede apuntar al snapshot viejo de otro registro. Este texto describe el comportamiento ya probado en E14; no se modificó `DocumentoGeneradoService`.
+
+**Evidencia cruda de H9 (request, response, HTTP):**
+
+```text
+$ ./mvnw -q -Dtest='HallazgoH9RamasHandlerTest,CorrelativoErrorHttpTest' test
+### H9b Bean Validation POST /api/marcas → HTTP 400 {"nombre":"El nombre de la marca es obligatorio"}
+### H9b excepción de NEGOCIO (IllegalArgumentException) → HTTP 400 {"mensaje":"Cliente no encontrado con id 99999"}
+### H9b fallo de SERVIDOR (IllegalStateException + IOException de disco) → HTTP 500 {"mensaje":"Error interno del servidor."}
+### HTTP POST /api/expedientes?clienteId=7
+### HTTP 409 {"mensaje":"No se pudo asignar un correlativo único tras 3 intentos."}
+exit_code=0
+
+$ ./mvnw test
+### H9 sonda directa: java.lang.IllegalStateException: No se pudo almacenar el PDF firmado. [causa: java.nio.file.FileAlreadyExistsException: /home/kevin/proyectos/proyecto-backend/data/pdf-firmados]
+### H9 HTTP POST /api/informes-tecnicos/1/pdf-firmado (fallo real de disco)
+### H9 HTTP 500 {"mensaje":"Error interno del servidor."}
+```
+
+La sonda del fallo real usa un PDF válido, fuerza un error de disco haciendo que la carpeta de destino sea un archivo regular, llama al controlador con MockMvc y restaura la carpeta en `finally`. El detalle de la excepción aparece en el log del test por `logger.error`, no en el cuerpo HTTP. El cuerpo de 500 se comparó exactamente en los tests.
+
+**Evidencia cruda de H17 (servidor HTTP embebido, puerto aleatorio, H2 aislada):**
+
+```text
+$ ./mvnw -q -Dtest=ErrorResponseHttpTest test
+### E15 GET /api/no-existe-e15 → HTTP 404 {"timestamp":"2026-09-25T22:02:41.494Z","status":404,"error":"Not Found","path":"/api/no-existe-e15"}
+### E15 POST /api/expedientes → HTTP 400 {"timestamp":"2026-09-25T22:02:41.529Z","status":400,"error":"Bad Request","path":"/api/expedientes"}
+exit_code=0
+```
+
+El POST omite el `clienteId` obligatorio. Las dos respuestas son JSON y no incluyen `trace` ni `exception`. Pese a `server.error.include-message=always`, esos dos cuerpos tampoco incluyeron `message`; no se afirma que ese campo sea obligatorio.
+
+**Regresión completa:**
+
+```text
+$ ./mvnw test
+Tests run: 41, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+exit_code=0
+```
+
+**Límites:** H9 incluye una ruta de fallo real de almacenamiento con MockMvc y pruebas aisladas de ramas; no se repitió el sabotaje con un servidor externo como en E14. H17 se verificó en dos rutas del servidor embebido con la configuración por defecto. No se tocaron H1/H3, H5/H6/H8, estados, correlativos, lógica de guardado de PDF, perfiles ni Flyway. La documentación de E14 y de entradas anteriores se conserva íntegra antes de esta entrada.
+
+**Resultado de esta entrada:** H9 y H17 pasan a RESUELTOS en el alcance probado; el comportamiento del fallback queda explícito en API.md y DB.md. E14 se conserva como evidencia histórica del fallo previo.

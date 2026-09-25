@@ -1,21 +1,58 @@
 # Gesmin Backend — Validación vigente
 
-**Código evaluado:** base `1183d19`, decisiones del 2026-09-25 aplicadas en E12 y corrección de PDF residual en E13; H1/H3 conservan la evidencia previa. Cada hallazgo tiene una ficha única. `RESUELTO` indica que la conducta señalada se verificó en el alcance descrito; `ABIERTO` indica una regla aún sin defender, una decisión pendiente o evidencia contradictoria sin comparación controlada. Los textos previos y sus veredictos se conservan literalmente en [HISTORIAL_VALIDACION.md](HISTORIAL_VALIDACION.md).
+**Código evaluado:** base `1183d19`, decisiones del 2026-09-25 aplicadas en E12 y corrección de PDF residual en E13; H1/H3 conservan la evidencia previa. E14 (FreeBuff, 2026-09-25) re-verificó E12/E13 sobre `4385bca` (cb5a844 + 4385bca) con corrida HTTP end-to-end; E15 (Codex, 2026-09-25) corrige H9/H17 sobre esa base y ejecuta la suite completa. Los resultados vigentes están en las fichas de abajo y en [E14](HISTORIAL_VALIDACION.md#e14) / [E15](HISTORIAL_VALIDACION.md#e15). Cada hallazgo tiene una ficha única. `RESUELTO` indica que la conducta señalada se verificó en el alcance descrito; `ABIERTO` indica una regla aún sin defender, una decisión pendiente o evidencia contradictoria sin comparación controlada. Los textos previos y sus veredictos se conservan literalmente en [HISTORIAL_VALIDACION.md](HISTORIAL_VALIDACION.md).
 
-**PDF generado:** E12 verifica snapshots automáticos de cotización, OT e informe tras confirmar cada registro, con fallback para archivos ausentes. E13 verifica que un archivo residual no se sirve si la cotización u OT ya no existe. La reutilización de IDs tras reiniciar solo la BD exige coordinar también `data/pdf-generados/` (véase DB.md).
+**PDF generado:** E12 verifica snapshots automáticos de cotización, OT e informe tras confirmar cada registro, con fallback para archivos ausentes. E13 verifica que un archivo residual no se sirve si la cotización u OT ya no existe. La reutilización de IDs tras reiniciar solo la BD exige coordinar también `data/pdf-generados/` (véase DB.md). **E14 re-verificó ambas features por HTTP real**: los tres archivos existen en disco tras crear los registros, el GET sirve el snapshot sin regenerarlo, el fallback regenera al vuelo y los GET de registros inexistentes no sirven PDF residual (véase [Feature E12/E13](#feature-pdf)).
 
-## Severidad — hallazgos nuevos (verificados en E11, 2026-09-25)
+## Severidad — hallazgos nuevos (E14; H9/H17 corregidos y verificados en E15, 2026-09-25)
 
 | Orden | Hallazgo | Severidad | Estado |
 |---|---|---|---|
-| 1 | [H9](#h9) | 🔴 **CRÍTICA** — un fallo real del servidor (incluso del propio certificado) se reporta como "error del request"; subestima incidentes en monitoreo ISO 17025 | ABIERTO; confirmado por corrida |
-| 2 | [H13](#h13) | 🟠 ALTA — segunda puerta de mutación de estado sin guard (extensión de H4) | RESUELTO en E12 |
-| 3 | [H15](#h15) | 🟠 MEDIA-ALTA — "OT implica cotización aprobada" no es invariante | RESUELTO en E12 |
-| 4 | [H14](#h14) | 🟠 ALTA (diseño) — regla de negocio nunca construida | SUPERADO como requisito: cierre manual de OT decidido |
-| 5 | [H10](#h10) | 🟡 MEDIA — migración cruda sin versionado | ABIERTO; confirmado por lectura |
-| 6 | [H12](#h12) | 🟡 MEDIA-BAJA — contador sin resincronización | ABIERTO; corrida: bloquea, no duplica |
-| 7 | [H11](#h11) | 🟡 BAJA (dev) / ALTA (prod) — consola H2 + ddl-auto | ABIERTO; confirmado por lectura |
-| 8 | [H16](#h16) | ⚪ BAJA-MEDIA — enum zombie | RESUELTO en E12 |
+| 1 | [H9](#h9) | 🔴 **CRÍTICA** — un fallo real del servidor (incluso del propio certificado) se reportaba como "error del request" | RESUELTO en el alcance E15: fallo real de disco → 500, negocio → 400, correlativo → 409 |
+| 2 | [H17](#h17) | 🟡 MEDIA — errores de binding y routing exponían stack trace en 400/404 | RESUELTO en el alcance E15: POST sin parámetro → 400 y GET inexistente → 404, ambos sin `trace` |
+| 3 | [H13](#h13) | 🟠 ALTA — segunda puerta de mutación de estado sin guard (extensión de H4) | RESUELTO en E12; re-verificado por lectura+HTTP en E14 |
+| 4 | [H15](#h15) | 🟠 MEDIA-ALTA — "OT implica cotización aprobada" no es invariante | RESUELTO en E12; reconfirmado por HTTP en E14 |
+| 5 | [H14](#h14) | 🟠 ALTA (diseño) — regla de negocio nunca construida | SUPERADO como requisito: cierre manual de OT decidido; reconfirmado en E14 |
+| 6 | [H10](#h10) | 🟡 MEDIA — migración cruda sin versionado | ABIERTO; confirmado por lectura (re-verificado E14) |
+| 7 | [H12](#h12) | 🟡 MEDIA-BAJA — contador sin resincronización | ABIERTO; corrida E11: bloquea, no duplica (código idéntico en E14) |
+| 8 | [H11](#h11) | 🟡 BAJA (dev) / ALTA (prod) — consola H2 + ddl-auto | ABIERTO; confirmado por lectura (re-verificado E14) |
+| 9 | [H16](#h16) | ⚪ BAJA-MEDIA — enum zombie | RESUELTO en E12; reconfirmado por HTTP en E14 |
+
+<a id="feature-pdf"></a>
+
+## Feature E12/E13 — Persistencia automática de PDF — VERIFICADA en E14 (FreeBuff, HTTP real sobre `4385bca`)
+
+**Qué se verificó y cómo (corrida completa en `validation/e14_http.log`, server real `./mvnw spring-boot:run`, base `./data/gesmin`):**
+
+1. **Los tres PDF se persisten al crear el registro.** Tras crear cotización 2, OT 2 e informe 8 vía API:
+
+```text
+EXISTS data/pdf-generados/cotizacion-2.pdf (1706 bytes, %PDF=%PDF-)
+EXISTS data/pdf-generados/orden-trabajo-2.pdf (1711 bytes, %PDF=%PDF-)
+EXISTS data/pdf-generados/informe-tecnico-8-sin-firma.pdf (1982 bytes, %PDF=%PDF-)
+```
+
+2. **El GET sirve el snapshot y NO regenera.** `GET /api/cotizaciones/2/pdf → 200` con mtime del archivo idéntico antes/después (`1790365408 → 1790365408, SIN regeneración`). Mismo resultado para el PDF de la OT tras cambiar su estado (`PATCH OT EN_PROCESO → 200`, mtime sin cambio).
+
+3. **Fallback: borrar el archivo a mano → el GET regenera al vuelo.** Se eliminó `cotizacion-2.pdf` del disco y `GET /api/cotizaciones/2/pdf` respondió `200` con un PDF válido (`%PDF-1.6`). Matiz de diseño verificado: la regeneración del fallback es **en memoria** y el archivo NO se reescribe en disco (el snapshot no se restaura). Consecuencia: mientras el archivo esté ausente, el PDF servido refleja los datos ACTUALES del registro, no el snapshot original de creación.
+
+4. **E13: registro inexistente no sirve PDF residual** (por más que existiera un archivo huérfano en disco):
+
+```text
+[400] GET /api/cotizaciones/999999/pdf {"mensaje":"Cotización no encontrada con id 999999"}
+[400] GET /api/ordenes-trabajo/999999/pdf {"mensaje":"Orden de trabajo no encontrada con id 999999"}
+[400] GET /api/informes-tecnicos/999999/pdf {"mensaje":"Informe técnico no encontrado con id 999999"}
+```
+
+5. **Generación DESPUÉS de `correlativos.ejecutar(...)` y fuera de la transacción de retry** (lectura de líneas):
+   - `CotizacionService.java:59-62`: `crear()` llama `correlativos.ejecutar(() -> crearUnaVez(dto))` y DESPUÉS `pdfGenerados.guardarCotizacion(creada.id())` (línea 61). `crearUnaVez` no genera PDF.
+   - `OrdenDeTrabajoService.java:43-46`: mismo patrón; `guardarOrden` en línea 45.
+   - `RevisionTecnicaService.java:80-88`: `registrarResultado` ejecuta el retry y solo si el intento confirmado produjo informe nuevo llama `pdfGenerados.guardarInforme(...)` (línea 87).
+   - `DocumentoGeneradoService.java:27/31/35` (métodos `guardar*`), `:58` (`Files.createDirectories`) y `:67` (`Files.createLink` atómico que nunca reemplaza un snapshot previo).
+
+6. **Snapshot inmutable ante cambios de estado del documento:** verificado por test (`PdfAutoPersistenciaTest`, verde en E14: "estados posteriores e idempotencia conservaron bytes") y por HTTP (mtime del PDF de la OT sin cambio tras `EN_PROCESO`).
+
+**Veredicto:** la feature funciona según lo declarado por E12/E13; sin regresiones detectadas. Límite no probado: un fallo de permisos de disco posterior al commit solo está cubierto por log (el documento no revierte); no se forzó ese escenario por HTTP.
 
 <a id="h1"></a>
 
@@ -120,7 +157,16 @@ Nota: surefire no acepta `,` para separar dos métodos de la misma clase (`#m1,m
 
 **Evidencia actual:** `TransicionesEstadoTest` exige aprobación directa, rechaza terminales y distingue las dos puertas de OT; `FlujoEstadosServiceTest` recorre el loop NO_APTO con los servicios reales. La suite completa y el caso H15 de integración se registran en E12. El texto histórico de E1 que mostró saltos arbitrarios queda **SUPERADO por E12**; no se borra.
 
-**Última verificación:** Codex, 2026-09-25, código y pruebas de E12. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E2](HISTORIAL_VALIDACION.md#e2) → [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).
+**E14 (HTTP real sobre `4385bca`):** las dos tablas de OT existen y se usan por la puerta correcta — `ORDEN_INTERNA` en `TransicionesEstado.java:24-29`, usada por `EvaluacionAptitudService` (líneas 71, 75, 114, 121); `ORDEN_PATCH` en `TransicionesEstado.java:31-36`, aplicada en `OrdenDeTrabajoService.java:92`. Corrida:
+
+```text
+[400] PATCH OT PENDIENTE->EN_ESPERA_CLIENTE {"mensaje":"Transición de estado no permitida: PENDIENTE -> EN_ESPERA_CLIENTE."}
+[200] PATCH OT PENDIENTE->EN_PROCESO
+[200] PATCH OT EN_PROCESO->COMPLETADA
+[400] PATCH OT COMPLETADA->CANCELADA {"mensaje":"Transición de estado no permitida: COMPLETADA -> CANCELADA."}
+```
+
+**Última verificación:** FreeBuff, 2026-09-25, E14 (código + HTTP + suite). **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E2](HISTORIAL_VALIDACION.md#e2) → [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12) → [E14](HISTORIAL_VALIDACION.md#e14).
 
 <a id="h5"></a>
 
@@ -128,9 +174,18 @@ Nota: surefire no acepta `,` para separar dos métodos de la misma clase (`#m1,m
 
 **Regla vigente:** `CERRADO` y `RECHAZADO` son terminales; `CERRADO → EN_PROCESO` ya responde 400. Gesmin confirmó que un expediente puede cerrarse con una OT `CANCELADA`, por lo que no se añadió ese guard. El cierre tampoco valida automáticamente evaluaciones o informes. El posible control adicional de esos componentes permanece **ABIERTO** sin regla aprobada; no se declara un cierre global del hallazgo.
 
-**Evidencia actual:** la tabla `TransicionesEstado.EXPEDIENTE` rechaza salir de `CERRADO` y `TransicionesEstadoTest` lo comprueba. La evidencia HTTP previa de E1, que reabría el expediente, está **SUPERADA por E12**. No se probó aquí una validación cruzada de cierre porque no se implementó.
+**Evidencia actual:** la tabla `TransicionesEstado.EXPEDIENTE` (líneas 38-42) rechaza salir de `CERRADO` y `TransicionesEstadoTest` lo comprueba; `ExpedienteService.cambiarEstado` (línea 61) es la única validación: no existen guards cruzados con OT, evaluaciones ni informes. La evidencia HTTP previa de E1, que reabría el expediente, está **SUPERADA por E12**.
 
-**Última verificación:** Codex, 2026-09-25, código y pruebas de E12. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).
+**E14 (HTTP real sobre `4385bca`):**
+
+```text
+[200] PATCH /api/expedientes/2/estado?estado=CERRADO   (cerró con OT 2/3/4 PENDIENTE: sin guard cruzado)
+[400] PATCH CERRADO->EN_PROCESO {"mensaje":"Transición de estado no permitida: CERRADO -> EN_PROCESO."}
+```
+
+El cierre con OTs vivas y `PENDIENTE` se ejecutó sin error: confirma que no hay validación cruzada, consistente con la decisión de Gesmin (solo se descartó el guard de OT CANCELADA; el resto de controles sigue sin regla aprobada). No se probó una validación cruzada de cierre porque no se implementó.
+
+**Última verificación:** FreeBuff, 2026-09-25, E14. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12) → [E14](HISTORIAL_VALIDACION.md#e14).
 
 <a id="h6"></a>
 
@@ -147,7 +202,16 @@ POST /revisiones-tecnicas -> 201 | {"id":3,"calibracionId":1,"instrumentoDescrip
 
 En el test vigente `h1Yh2ImpidenRepetirRevisionYEmitirSegundoInforme` se crean dos revisiones pendientes antes de certificar la primera.
 
-**Última verificación:** FreeBuff, 2026-09-23 (HTTP concurrente); Codex, 2026-09-24 (test de servicio). **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E3](HISTORIAL_VALIDACION.md#e3).
+**E14 (HTTP real sobre `4385bca`):** dos revisiones `PENDIENTE` (#75 y #76) creadas sobre la misma calibración 35 `COMPLETADA` sin informe activo:
+
+```text
+[201] POST /api/revisiones-tecnicas {"id":75,"calibracionId":35,...,"resultado":"PENDIENTE"}
+[201] POST /api/revisiones-tecnicas {"id":76,"calibracionId":35,...,"resultado":"PENDIENTE"}
+```
+
+Matiz nuevo verificado: cuando la calibración YA tiene un informe activo, el guard introducido en E12 (`RevisionTecnicaService.java:66-70`, "esta calibración ya tiene un informe técnico") rechaza revisiones nuevas con 400. El hallazgo sigue abierto en su forma original (pendientes sin usar antes de certificar).
+
+**Última verificación:** FreeBuff, 2026-09-25, E14 (HTTP). **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E3](HISTORIAL_VALIDACION.md#e3) → [E14](HISTORIAL_VALIDACION.md#e14).
 
 <a id="h7"></a>
 
@@ -173,36 +237,49 @@ GET /informes-tecnicos/99999 -> 400 | {"mensaje":"Informe Técnico no encontrado
 
 El handler vigente retorna `HttpStatus.BAD_REQUEST` para `RuntimeException`.
 
-**Última verificación:** FreeBuff, 2026-09-23 (HTTP); Codex, 2026-09-24 (inspección de handler). **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E5](HISTORIAL_VALIDACION.md#e5).
+**E14 (HTTP real sobre `4385bca`):**
+
+```text
+[400] GET /api/clientes/999999 {"mensaje":"Cliente no encontrado con id 999999"}
+[400] GET /api/cotizaciones/999999 {"mensaje":"Cotización no encontrada con id 999999"}
+[400] GET /api/ordenes-trabajo/999999 {"mensaje":"Orden de Trabajo no encontrada con id 999999"}
+```
+
+Sin cambio de contrato (ver también [H17](#h17): estos 400 además llegan por la rama genérica de `RuntimeException`).
+
+**Última verificación:** FreeBuff, 2026-09-25, E14 (HTTP). **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E5](HISTORIAL_VALIDACION.md#e5) → [E14](HISTORIAL_VALIDACION.md#e14).
 
 <a id="h9"></a>
 
-## H9 — ABIERTO, confirmado por corrida (CRÍTICO): el handler disfraza fallos de servidor como errores del cliente
+## H9 — RESUELTO en E15, alcance probado: errores de servidor responden 500
 
-**Regla observada (hecho):** `GlobalExceptionHandler.handleRuntime` captura **toda** `RuntimeException` (línea 30-35 de `src/main/java/com/kevin/backend/exception/GlobalExceptionHandler.java`) y responde siempre `400 Bad Request` con `ex.getMessage()`. Solo escapan de esa rama las validaciones de Bean Validation (`MethodArgumentNotValidException`) y el `CorrelativoAgotadoException` (409 con handler propio, líneas 22-28). Toda `IllegalStateException`, `IOException` envuelta u otro bug de programación/infraestructura cae en la rama genérica y sale como error del request, con el mensaje interno expuesto en el body.
+**Regla vigente:** `GlobalExceptionHandler` devuelve 400 para `IllegalArgumentException` de negocio y para `MethodArgumentNotValidException`; `CorrelativoAgotadoException` mantiene 409. Las demás `RuntimeException` se registran con `logger.error` y stack en el log, y responden 500 con solo `{"mensaje":"Error interno del servidor."}`. El 400 observado por FreeBuff en E14 para un fallo de disco queda **SUPERADO por E15**; el texto y la salida originales siguen íntegros en [E14](HISTORIAL_VALIDACION.md#e14).
 
-**Evidencia cruda (corrida E11, `AuditoriaHallazgosNuevos4c3cbb8Test.h9_falloRealDeAlmacenamientoDelCertificadoSeRespondeComo4xx` sobre base H2 en memoria):** se recorrió el flujo completo hasta el informe (`GENERADO`), se provocó un fallo REAL de infraestructura en el almacenamiento del certificado (el directorio `./data/pdf-firmados` pasa a ser un archivo regular; la lógica de negocio permanece íntegra) y se midió la respuesta:
-
-```text
-### H9 sonda directa: java.lang.IllegalStateException: No se pudo almacenar el PDF firmado.
-      [causa: java.nio.file.FileAlreadyExistsException: .../data/pdf-firmados]
-### H9 HTTP POST /api/informes-tecnicos/1/pdf-firmado (fallo real de disco)
-### H9 HTTP 400 {"mensaje":"No se pudo almacenar el PDF firmado."}
-```
-
-Un fallo del propio certificado —el documento ISO 17025 por excelencia del sistema— se reporta con el código que HTTP reserva para "el cliente se equivocó". Ramas del handler, por corrida aislada (`HallazgoH9RamasHandlerTest`):
+**Evidencia cruda (2026-09-25):**
 
 ```text
+$ ./mvnw -q -Dtest='HallazgoH9RamasHandlerTest,CorrelativoErrorHttpTest' test
+### H9b Bean Validation POST /api/marcas → HTTP 400 {"nombre":"El nombre de la marca es obligatorio"}
 ### H9b excepción de NEGOCIO (IllegalArgumentException) → HTTP 400 {"mensaje":"Cliente no encontrado con id 99999"}
-### H9b fallo de SERVIDOR (IllegalStateException + IOException de disco) → HTTP 400 {"mensaje":"No se pudo almacenar el PDF firmado."}
-### H9b veredicto: ambas caen en handleRuntime(RuntimeException) → mismo código HTTP
+### H9b fallo de SERVIDOR (IllegalStateException + IOException de disco) → HTTP 500 {"mensaje":"Error interno del servidor."}
+### HTTP POST /api/expedientes?clienteId=7
+### HTTP 409 {"mensaje":"No se pudo asignar un correlativo único tras 3 intentos."}
+exit_code=0
+
+$ ./mvnw test
+### H9 sonda directa: java.lang.IllegalStateException: No se pudo almacenar el PDF firmado. [causa: java.nio.file.FileAlreadyExistsException: /home/kevin/proyectos/proyecto-backend/data/pdf-firmados]
+### H9 HTTP POST /api/informes-tecnicos/1/pdf-firmado (fallo real de disco)
+### H9 HTTP 500 {"mensaje":"Error interno del servidor."}
+Tests run: 41, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+exit_code=0
 ```
 
-**Reproducción:** `./mvnw -q -Dtest='AuditoriaHallazgosNuevos4c3cbb8Test,HallazgoH9RamasHandlerTest' -Dsurefire.failIfNoSpecifiedTests=true test`
+**Reproducción:** `./mvnw -q -Dtest='HallazgoH9RamasHandlerTest,CorrelativoErrorHttpTest' test` para ramas 400/500/409; `./mvnw -q -Dtest='AuditoriaHallazgosNuevos4c3cbb8Test#h9_falloRealDeAlmacenamientoDelCertificadoSeRespondeComo500' test` para fallo real de disco con PDF válido y ruta HTTP controlada por MockMvc; `./mvnw test` para regresión. El test de disco restaura `data/pdf-firmados` en su `finally`.
 
-**Responsable de la corrección (Codex):** separar excepciones de negocio (`IllegalArgumentException` y propias, → 400/404/409 según contrato) del resto de `RuntimeException` (→ 500 + log de servidor). Es ~30 min de trabajo y no depende de ninguna decisión de Gesmin; solo cambia el código HTTP y el log, no el contrato de mensajes.
+**Límite:** la sonda de fallo real usa servicio y controlador reales con MockMvc, no un proceso HTTP externo. E14 sí usó servidor real para demostrar el 400 anterior. No se hizo prueba de observabilidad de logs desplegados ni de todas las posibles `RuntimeException`.
 
-**Última verificación:** FreeBuff, 2026-09-25, corrida E11 sobre `4c3cbb8`. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11). Se solapa y agrava [H8](#h8): no solo el "no encontrado", cualquier bug de servidor queda disfrazado de 400.
+**Última verificación:** Codex, 2026-09-25, E15 (ramas HTTP y fallo real de disco). **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E14](HISTORIAL_VALIDACION.md#e14) → [E15](HISTORIAL_VALIDACION.md#e15).
 
 <a id="h10"></a>
 
@@ -215,15 +292,13 @@ jdbc.execute("ALTER TABLE informes_tecnicos ALTER COLUMN estado "
         + "ENUM('APROBADO', 'ENVIADO', 'GENERADO', 'PDF_CARGADO', 'ANULADO') NOT NULL");
 ```
 
-Se ejecuta sin condición en cada arranque (`ApplicationRunner`). El `pom.xml` no contiene Flyway ni Liquibase (verificado por grep: `sin flyway/liquibase`); el resto del esquema depende de `ddl-auto=update`. No hay registro de qué migraciones se aplicaron. Es sintaxis específica de H2: el día que se cambie de motor, el arranque se rompe sin aviso.
+Re-verificado en E14 (25-09-2026, checkout `4385bca`): el código sigue igual (mismo `ApplicationRunner` sin condición, líneas 14-23). El `pom.xml` vigente no contiene Flyway ni Liquibase (grep sin resultados; dependencias: data-jpa, validation, webmvc, pdfbox 3.0.8, devtools, lombok, h2, h2console, springdoc 2.8.5 y starters de test). El resto del esquema sigue dependiendo de `ddl-auto=update`. No hay registro de qué migraciones se aplicaron. Es sintaxis específica de H2: el día que se cambie de motor, el arranque se rompe sin aviso.
 
 **Nota honesta (no se puede probar por corrida):** el riesgo es de despliegue futuro (PostgreSQL/MySQL), no de la configuración actual; un test sobre H2 solo demostraría lo que ya demostró `InformeEstadoSchemaMigrationTest` (que la sentencia es idempotente en H2). Demostrar el fallo requeriría una base PostgreSQL real. La lectura del código es la evidencia completa disponible.
 
 **Responsable (Codex):** introducir versionado de migraciones (Flyway/Liquibase) o, como mínimo, un mecanismo de "migración ya aplicada". Sesión de higiene de infraestructura, junto con H11.
 
-**Última verificación:** FreeBuff, 2026-09-25, inspección con líneas citadas. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11).
-
-<a id="h11"></a>
+**Última verificación:** FreeBuff, 2026-09-25 (E11) y re-verificado por lectura en E14 sobre `4385bca`. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E14](HISTORIAL_VALIDACION.md#e14).
 
 ## H11 — ABIERTO, confirmado por lectura: consola H2 habilitada en la configuración única (sin perfiles)
 
@@ -240,7 +315,9 @@ Además `pom.xml:71` incluye `spring-boot-h2console`. No hay `spring-boot-starte
 
 **Responsable (Codex + decisión Gesmin sobre el motor de destino):** separar `application-dev.properties` / `application-prod.properties` antes de cualquier despliegue.
 
-**Última verificación:** FreeBuff, 2026-09-25, inspección con líneas citadas. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11).
+**E14 (re-verificación por lectura, checkout `4385bca`):** `src/main/resources/` sigue conteniendo un único `application.properties` (glob `application*.properties` = 1 archivo; no hay perfiles dev/prod). Líneas vigentes: 8 `spring.jpa.hibernate.ddl-auto=update`, 11 `spring.h2.console.enabled=true`, 12 `spring.h2.console.path=/h2-console`, 13 `spring.h2.console.settings.web-allow-others=true`. El `pom.xml` sigue incluyendo `spring-boot-h2console` y sin actuator ni spring-security: la consola H2 queda expuesta sin protección y sin opción de desactivarla por perfil.
+
+**Última verificación:** FreeBuff, 2026-09-25 (E11) y re-verificado por lectura en E14 sobre `4385bca`. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E14](HISTORIAL_VALIDACION.md#e14).
 
 <a id="h12"></a>
 
@@ -262,7 +339,11 @@ Además `pom.xml:71` incluye `spring-boot-h2console`. No hay `spring-boot-starte
 
 **Decisión de negocio implicada (no implementar sin Gesmin):** si Gesmin prevé reseeds o limpiezas de datos de prueba, la inicialización debería calcular `MAX(número)` vivo y no `COUNT()`; si nunca se borra nada, la conducta actual es irrelevante en producción. La corrección es de código (Codex), pero la necesidad depende de la práctica operativa (Gesmin).
 
-**Última verificación:** FreeBuff, 2026-09-25, corrida E11. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11).
+**E14 (re-verificación por lectura, checkout `4385bca`):** el código no cambió. `CorrelativoService.java:27-31`: `contadores.bloquear(prefijo).orElseGet(...)` inicializa con `nuevo.setUltimo(historicos.getAsLong())` (línea 29), y ese `historicos` es un `COUNT()` aportado por cada servicio (p. ej. `ExpedienteService.java:66-68`). Después de la primera creación del año, nada vuelve a consultar el conteo real: sin resync posterior.
+
+**E14 no re-ejecutó el experimento E11** (borrado de fila + contador y colisión posterior); la evidencia de la colisión sigue siendo la corrida E11 citada arriba, sobre código idéntico en la zona relevante (4c3cbb8 → 4385bca no tocó CorrelativoService: verificado por `git diff --shortstat`, solo modos de archivo).
+
+**Última verificación:** FreeBuff, 2026-09-25, corrida E11 (ejecución) + lectura E14. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E14](HISTORIAL_VALIDACION.md#e14).
 
 <a id="h13"></a>
 
@@ -272,7 +353,9 @@ Además `pom.xml:71` incluye `spring-boot-h2console`. No hay `spring-boot-starte
 
 **Evidencia:** búsqueda de `setEstado` en los servicios y pruebas `TransicionesEstadoTest`; `FlujoEstadosServiceTest` recorre el loop interno, y la suite completa de E12 cubre las rutas adversariales previas. El hecho de E11 de mutaciones directas sin guard queda **SUPERADO por E12**.
 
-**Última verificación:** Codex, 2026-09-25. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).
+**E14 (re-verificación por lectura + HTTP, checkout `4385bca`):** inventario completo de mutaciones de OT fuera del PATCH: `EvaluacionAptitudService.java:71-76` (NO_APTO/APTO), `:113-122` (respuesta cliente → PENDIENTE/CANCELADA) — todas precedidas de `validarTransicion` con `ORDEN_INTERNA` (líneas 71, 75, 114, 121). Calibración: `CalibracionService.java:71` (PATCH), `:97-99` (`registrarMediciones`), `RevisionTecnicaService.java:147-149` (reapertura) usan la tabla `CALIBRACION`; `ExpedienteService.java:61` usa `EXPEDIENTE`; `CotizacionService.java:105-107` usa `COTIZACION`. No queda ninguna `setEstado` de flujo sin validación previa. El loop NO_APTO completo fue además recorrido por HTTP real en E14 (ver [H14](#h14) y la tabla de abajo de esta ficha en E14b).
+
+**Última verificación:** FreeBuff, 2026-09-25, E14 (lectura + HTTP + suite). **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12) → [E14](HISTORIAL_VALIDACION.md#e14).
 
 <a id="h14"></a>
 
@@ -280,9 +363,19 @@ Además `pom.xml:71` incluye `spring-boot-h2console`. No hay `spring-boot-starte
 
 **Decisión vigente de Kevin/Gesmin:** no crear lógica automática que marque la OT `COMPLETADA`. El operador puede aplicar `PATCH /api/ordenes-trabajo/{id}/estado?estado=COMPLETADA` desde `EN_PROCESO`; `COMPLETADA` es terminal. El hallazgo de E11, «ningún flujo la marca automáticamente», sigue siendo verdadero como hecho, pero ya no representa una función pendiente dentro del alcance confirmado.
 
-**Evidencia:** `TransicionesEstado.ORDEN_PATCH` permite `EN_PROCESO → COMPLETADA` y rechaza salir de `COMPLETADA`; `TransicionesEstadoTest` verifica la terminalidad. No se construyó automatismo.
+**Evidencia:** `TransicionesEstado.ORDEN_PATCH` (líneas 31-36) permite `EN_PROCESO → COMPLETADA` y rechaza salir de `COMPLETADA`; `TransicionesEstadoTest` verifica la terminalidad. No se construyó automatismo.
 
-**Última verificación:** Codex, 2026-09-25. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).
+**E14 (HTTP real sobre `4385bca`):** el PATCH manual funciona y ningún flujo automático alcanza `COMPLETADA`:
+
+```text
+[200] PATCH /api/ordenes-trabajo/3/estado?estado=EN_PROCESO
+[200] PATCH /api/ordenes-trabajo/3/estado?estado=COMPLETADA
+[400] PATCH /api/ordenes-trabajo/3/estado?estado=CANCELADA {"mensaje":"Transición de estado no permitida: COMPLETADA -> CANCELADA."}
+```
+
+Por lectura: la única escritura de `EstadoOrdenTrabajo.COMPLETADA` en los servicios está en el PATCH (`OrdenDeTrabajoService.java:92-96` vía `orden.setEstado(nuevoEstado)`); evaluación y respuesta-cliente solo escriben `EN_ESPERA_CLIENTE`, `EN_PROCESO`, `PENDIENTE` y `CANCELADA` (líneas 71-76 y 113-122 de `EvaluacionAptitudService.java`). El cierre de la OT sigue siendo una decisión manual del operador, como se decidió.
+
+**Última verificación:** FreeBuff, 2026-09-25, E14 (HTTP + lectura). **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12) → [E14](HISTORIAL_VALIDACION.md#e14).
 
 <a id="h15"></a>
 
@@ -298,7 +391,16 @@ Además `pom.xml:71` incluye `spring-boot-h2console`. No hay `spring-boot-starte
 ### H15 invariante: OT 1 sigue PENDIENTE sobre cotización APROBADA
 ```
 
-**Última verificación:** Codex, 2026-09-25, test focalizado y suite E12. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).
+**E14 (HTTP real sobre `4385bca`):**
+
+```text
+[400] PATCH /api/cotizaciones/2/estado?estado=RECHAZADA {"mensaje":"No se puede cambiar la cotización aprobada: ya tiene una Orden de Trabajo asociada."}
+[200] PATCH /api/cotizaciones/2/estado?estado=APROBADA   (idempotente)
+```
+
+con las OTs 2, 3 y 4 vivas (`PENDIENTE`/`EN_PROCESO`/`COMPLETADA`) sobre esa cotización. Guard en `CotizacionService.java:102-107` (antes de la tabla `COTIZACION`, línea 108).
+
+**Última verificación:** FreeBuff, 2026-09-25, E14 (HTTP). **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12) → [E14](HISTORIAL_VALIDACION.md#e14).
 
 <a id="h16"></a>
 
@@ -308,4 +410,32 @@ Además `pom.xml:71` incluye `spring-boot-h2console`. No hay `spring-boot-starte
 
 **Evidencia:** enum, contrato y esquema actualizados; consulta de BD y regresión de E12. La pregunta histórica de E11 queda **SUPERADA por la decisión de Gesmin** de eliminarlo.
 
-**Última verificación:** Codex, 2026-09-25. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).
+**E14 (re-verificación, checkout `4385bca`):** grep de `ACEPTADO` en todo el repo: solo aparecen menciones históricas/documentales (`VALIDACION.md`, `HISTORIAL_VALIDACION.md`, `HALLAZGOS_NUEVOS.md`, `CAMBIOS_PARA_CODEX.md`, `Contexto - Gesmin.txt`); cero en `src/`. Por HTTP:
+
+```text
+[400] PATCH /api/expedientes/3/estado?estado=ACEPTADO
+{"mensaje":"Method parameter 'estado': Failed to convert value of type 'java.lang.String' to required type 'com.kevin.backend.model.EstadoExpediente'; ... for value [ACEPTADO]"}
+```
+
+**Última verificación:** FreeBuff, 2026-09-25, E14 (grep + HTTP). **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12) → [E14](HISTORIAL_VALIDACION.md#e14).
+
+<a id="h17"></a>
+
+## H17 — RESUELTO en E15, alcance probado: 400/404 de Spring sin stack en el body
+
+**Regla vigente:** `application.properties` fija `server.error.include-stacktrace=never` y `server.error.include-message=always`. El stack que FreeBuff observó en E14 queda **SUPERADO por E15**; su salida original está intacta en [E14](HISTORIAL_VALIDACION.md#e14). La propiedad de mensaje permite incluirlo cuando Spring lo proporciona; los dos cuerpos observados no contienen campo `message`.
+
+**Evidencia cruda (servidor embebido con puerto aleatorio y H2 aislada):**
+
+```text
+$ ./mvnw -q -Dtest=ErrorResponseHttpTest test
+### E15 GET /api/no-existe-e15 → HTTP 404 {"timestamp":"2026-09-25T22:02:41.494Z","status":404,"error":"Not Found","path":"/api/no-existe-e15"}
+### E15 POST /api/expedientes → HTTP 400 {"timestamp":"2026-09-25T22:02:41.529Z","status":400,"error":"Bad Request","path":"/api/expedientes"}
+exit_code=0
+```
+
+El POST omite `clienteId`, parámetro obligatorio. El test comprueba código HTTP, cuerpo JSON y ausencia de claves `trace` y `exception` en ambos casos.
+
+**Reproducción:** `./mvnw -q -Dtest=ErrorResponseHttpTest test` o `./mvnw test`. **Límite:** se verificaron estas dos rutas de Spring en el perfil por defecto; no se agregaron perfiles dev/prod.
+
+**Última verificación:** Codex, 2026-09-25, E15 (HTTP real embebido). **Historial:** [E14](HISTORIAL_VALIDACION.md#e14) → [E15](HISTORIAL_VALIDACION.md#e15).

@@ -91,7 +91,7 @@ class AuditoriaHallazgosNuevos4c3cbb8Test {
     // informe: ¿qué excepción concreta cae en qué rama del handler?
     // =====================================================================
     @Test
-    void h9_falloRealDeAlmacenamientoDelCertificadoSeRespondeComo4xx() throws Exception {
+    void h9_falloRealDeAlmacenamientoDelCertificadoSeRespondeComo500() throws Exception {
         RevisionTecnicaDTO revision = revisionService.crear(revisionNueva(prepararCalibracion()));
         revisionService.registrarResultado(revision.id(), ResultadoRevision.CONFORME, null);
         Long informeId = informes.findAll().stream()
@@ -142,8 +142,8 @@ class AuditoriaHallazgosNuevos4c3cbb8Test {
             System.out.println("### H9 HTTP " + respuesta.getStatus() + " " + respuesta.getContentAsString());
             System.out.println("### H9 clasificacion: fallo de infraestructura del certificado respondido como "
                     + (respuesta.getStatus() >= 500 ? "5xx" : respuesta.getStatus() >= 400 ? "4xx (error del cliente)" : "2xx"));
-            assertTrue(respuesta.getStatus() >= 400 && respuesta.getStatus() < 500,
-                    "H9: se esperaba 4xx según el informe (recibido " + respuesta.getStatus() + ")");
+            assertEquals(500, respuesta.getStatus());
+            assertEquals("{\"mensaje\":\"Error interno del servidor.\"}", respuesta.getContentAsString());
         } finally {
             Files.deleteIfExists(dir);
             if (eraDirectorio) {
