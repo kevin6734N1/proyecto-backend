@@ -369,7 +369,7 @@ El backend compara resultado y observaciones, y anula el certificado vigente ant
 
 ## 11. PDF generados y PDF firmado (2026-09-24)
 
-Los tres reportes se generan y guardan una vez al crear la cotización, OT o informe técnico. Son snapshots: los cambios de estado posteriores no modifican esos archivos. Cada GET sirve el PDF guardado; si falta (registro antiguo o fallo de escritura), lo genera al vuelo como respaldo. El registro en BD permanece creado aunque falle el guardado del PDF. No hay que subir archivo para cotización u orden. Cada GET responde `application/pdf` con `Content-Disposition: attachment`; en React/axios usa `responseType: "blob"`.
+Los tres reportes se generan y guardan una vez al crear la cotización, OT o informe técnico. Son snapshots: los cambios de estado posteriores no modifican esos archivos. Cada GET sirve el PDF guardado; si falta (registro antiguo o fallo de escritura), lo genera al vuelo como respaldo. Antes de servir un archivo guardado, el backend comprueba que el registro aún exista; un archivo residual de una cotización u OT eliminada no es descargable. El registro en BD permanece creado aunque falle el guardado del PDF. No hay que subir archivo para cotización u orden. Cada GET responde `application/pdf` con `Content-Disposition: attachment`; en React/axios usa `responseType: "blob"`.
 
 | Documento | Endpoint | Cuándo existe |
 |---|---|---|

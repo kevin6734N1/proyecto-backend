@@ -1,6 +1,8 @@
 # Gesmin Backend — Validación vigente
 
-**Código evaluado:** `4c3cbb8` (2026-09-24). Cada hallazgo tiene una ficha única. `RESUELTO` indica que la conducta señalada se verificó en el alcance descrito; `ABIERTO` indica una regla aún sin defender, una decisión pendiente o evidencia contradictoria sin comparación controlada. Los textos previos y sus veredictos se conservan literalmente en [HISTORIAL_VALIDACION.md](HISTORIAL_VALIDACION.md).
+**Código evaluado:** base `1183d19`, decisiones del 2026-09-25 aplicadas en E12 y corrección de PDF residual en E13; H1/H3 conservan la evidencia previa. Cada hallazgo tiene una ficha única. `RESUELTO` indica que la conducta señalada se verificó en el alcance descrito; `ABIERTO` indica una regla aún sin defender, una decisión pendiente o evidencia contradictoria sin comparación controlada. Los textos previos y sus veredictos se conservan literalmente en [HISTORIAL_VALIDACION.md](HISTORIAL_VALIDACION.md).
+
+**PDF generado:** E12 verifica snapshots automáticos de cotización, OT e informe tras confirmar cada registro, con fallback para archivos ausentes. E13 verifica que un archivo residual no se sirve si la cotización u OT ya no existe. La reutilización de IDs tras reiniciar solo la BD exige coordinar también `data/pdf-generados/` (véase DB.md).
 
 ## Severidad — hallazgos nuevos (verificados en E11, 2026-09-25)
 

@@ -784,3 +784,25 @@ El test `AuditoriaHallazgosNuevos4c3cbb8Test` de H15, aportado con E11 para demo
 **Límites:** la prueba de PDFs comprueba creación real tras commit, lectura de bytes, inmutabilidad y fallback por archivo ausente; no forzó un fallo de permisos de disco después del commit. La suite usa H2 local/en memoria; no demuestra comportamiento multi-nodo ni despliegue con otro motor. No se ejecutó una corrida HTTP externa de las nuevas tablas de estado; `FlujoEstadosServiceTest` usa los servicios reales, y los códigos HTTP previstos provienen del handler vigente de `IllegalArgumentException`. H9, H10, H11 y H12 permanecen explícitamente fuera de este cambio.
 
 **Resultado de esta entrada:** aplica las decisiones de `CAMBIOS_PARA_CODEX.md` y registra los límites vigentes, sin reescribir E11.
+
+
+<a id="e13"></a>
+
+## E13 — 2026-09-25 — Codex
+
+**Texto original de esta entrada (revisión posterior al commit de E12):** Se detectó una regresión de lectura en los PDFs persistidos: `DocumentoGeneradoService.leerCotizacion` y `leerOrden` servían el archivo si existía en disco sin verificar que la fila correspondiente aún existiera. Tras borrar una cotización u OT, un PDF residual podía seguir descargándose. `DocumentoPdfService` ahora expone validadores de existencia usados antes de leer el snapshot o activar el fallback; la validación previa de `ANULADO` en informes sigue vigente.
+
+**Prueba:** `DocumentoPdfServiceTest.pdfGeneradosQuedanComoSnapshotYElGetRetrocompatibleRespetaAnulacion` ahora crea los tres archivos, simula repositorios sin cotización y sin OT, y exige `IllegalArgumentException` al leer aunque el archivo persista. Después restituye las filas simuladas y verifica snapshot, fallback e informe anulado. La prueba focalizada y la suite completa terminaron así:
+
+```text
+$ ./mvnw -q -Dtest=DocumentoPdfServiceTest test
+exit_code=0
+
+$ ./mvnw -q test
+classes=12 tests=38 failures=0 errors=0 skipped=0
+exit_code=0
+```
+
+**Límite que permanece:** el nombre del PDF está fijado por tipo e ID, como pidió Gesmin. Si se reinicia la base y se reutiliza el mismo ID mientras subsiste una carpeta de PDFs vieja, la comprobación de existencia no detecta que el archivo pertenece a otro registro. Base y carpeta `pdf-generados` deben restaurarse o limpiarse juntas; se documentó en `DB.md`. E12 queda íntegra como registro del primer commit, y esta entrada añade la corrección.
+
+**Resultado de esta entrada:** los GET de cotización y OT ya no sirven PDFs residuales de registros ausentes; resta la coordinación operativa de respaldos ante reutilización de IDs.

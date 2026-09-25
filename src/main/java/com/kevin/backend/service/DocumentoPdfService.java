@@ -172,6 +172,16 @@ public class DocumentoPdfService {
         }
     }
 
+    public void validarCotizacionExistente(Long id) {
+        cotizaciones.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Cotización no encontrada con id " + id));
+    }
+
+    public void validarOrdenExistente(Long id) {
+        ordenes.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Orden de trabajo no encontrada con id " + id));
+    }
+
     public void validarInformeDescargable(Long id) {
         buscarInformeDescargable(id);
     }

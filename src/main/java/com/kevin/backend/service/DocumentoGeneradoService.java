@@ -37,10 +37,12 @@ public class DocumentoGeneradoService {
     }
 
     public byte[] leerCotizacion(Long id) {
+        generador.validarCotizacionExistente(id);
         return leer("cotizacion-" + id + ".pdf", () -> generador.cotizacion(id));
     }
 
     public byte[] leerOrden(Long id) {
+        generador.validarOrdenExistente(id);
         return leer("orden-trabajo-" + id + ".pdf", () -> generador.orden(id));
     }
 

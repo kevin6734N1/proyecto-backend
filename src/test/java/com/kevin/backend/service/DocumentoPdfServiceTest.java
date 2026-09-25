@@ -80,6 +80,14 @@ class DocumentoPdfServiceTest {
         assertTrue(Files.isRegularFile(informe));
         byte[] snapshot = Files.readAllBytes(cotizacion);
         assertArrayEquals(snapshot, almacen.leerCotizacion(1L));
+        when(cotizaciones.findById(1L)).thenReturn(Optional.empty());
+        assertThrows(IllegalArgumentException.class, () -> almacen.leerCotizacion(1L),
+                "Un PDF residual no debe ser descargable si su cotización ya no existe.");
+        when(cotizaciones.findById(1L)).thenReturn(Optional.of(datos.cotizacion()));
+        when(ordenes.findById(2L)).thenReturn(Optional.empty());
+        assertThrows(IllegalArgumentException.class, () -> almacen.leerOrden(2L),
+                "Un PDF residual no debe ser descargable si su OT ya no existe.");
+        when(ordenes.findById(2L)).thenReturn(Optional.of(datos.orden()));
 
         datos.cotizacion().setObservaciones("Cambio posterior a la creación");
         almacen.guardarCotizacion(1L);
