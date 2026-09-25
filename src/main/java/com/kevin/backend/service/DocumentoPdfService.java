@@ -124,11 +124,7 @@ public class DocumentoPdfService {
 
     @Transactional(readOnly = true)
     public byte[] informe(Long id) {
-        InformeTecnico i = informes.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Informe técnico no encontrado con id " + id));
-        if (i.getEstado() == EstadoInforme.ANULADO) {
-            throw new IllegalArgumentException("El informe fue anulado y no está disponible para descarga.");
-        }
+        InformeTecnico i = buscarInformeDescargable(id);
         RevisionTecnica r = i.getRevisionTecnica();
         Calibracion cal = r.getCalibracion();
         EvaluacionAptitud ev = cal.getEvaluacionAptitud();
@@ -174,6 +170,19 @@ public class DocumentoPdfService {
         } catch (IOException e) {
             throw new IllegalStateException("No se pudo generar el informe técnico PDF", e);
         }
+    }
+
+    public void validarInformeDescargable(Long id) {
+        buscarInformeDescargable(id);
+    }
+
+    private InformeTecnico buscarInformeDescargable(Long id) {
+        InformeTecnico informe = informes.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Informe técnico no encontrado con id " + id));
+        if (informe.getEstado() == EstadoInforme.ANULADO) {
+            throw new IllegalArgumentException("El informe fue anulado y no está disponible para descarga.");
+        }
+        return informe;
     }
 
     private static String fecha(LocalDate fecha) {

@@ -57,7 +57,7 @@ erDiagram
         varchar numero UK "NOT NULL - ej. E2608440"
         date fecha "NOT NULL"
         bigint cliente_id FK "NOT NULL"
-        varchar estado "EN_PROCESO | RECHAZADO | EN_ESPERA | ACEPTADO | CERRADO"
+        varchar estado "EN_PROCESO | RECHAZADO | EN_ESPERA | CERRADO"
     }
 
     cotizaciones {
@@ -185,10 +185,12 @@ erDiagram
         varchar numero UK "NOT NULL - correlativo ITyymmnn ej. IT260901"
         bigint revision_tecnica_id FK "NOT NULL"
         date fecha_emision "NOT NULL"
-        varchar estado "NOT NULL - GENERADO | PDF_CARGADO | APROBADO | ENVIADO"
-        boolean pdf_cargado "NOT NULL - DEFAULT false - placeholder PDF"
+        varchar estado "NOT NULL - GENERADO | PDF_CARGADO | APROBADO | ENVIADO | ANULADO"
+        boolean pdf_cargado "NOT NULL - DEFAULT false - metadata del PDF firmado"
         date fecha_carga_pdf
         date fecha_envio "se llena al marcar ENVIADO"
+        date fecha_anulacion "se llena al anular"
+        text motivo_anulacion "traza del cambio de resultado"
     }
 
     clientes ||--o{ contactos : "tiene"
@@ -279,15 +281,15 @@ erDiagram
 
 ## Archivo firmado fuera de H2 (2026-09-24)
 
-`informes_tecnicos.pdf_cargado` y `fecha_carga_pdf` son metadatos; el PDF firmado real está en `./data/pdf-firmados/{id}.pdf`. Se guarda una sola vez al subirlo por API, y aprobar el informe exige que ese archivo exista. Respaldar la carpeta junto con `gesmin.mv.db`; restaurar solo la base dejaría informes sin su archivo. Cotizaciones, órdenes e informes sin firma se generan dinámicamente desde los datos y no ocupan almacenamiento persistente.
+`informes_tecnicos.pdf_cargado` y `fecha_carga_pdf` son metadatos; el PDF firmado real está en `./data/pdf-firmados/{id}.pdf`. Se guarda una sola vez al subirlo por API, y aprobar el informe exige que ese archivo exista. Respaldar la carpeta junto con `gesmin.mv.db`; restaurar solo la base dejaría informes sin su archivo. Cotizaciones, órdenes e informes sin firma se guardan como snapshots en `./data/pdf-generados/` al crear cada registro: `cotizacion-{id}.pdf`, `orden-trabajo-{id}.pdf` e `informe-tecnico-{id}-sin-firma.pdf`. No hay columna nueva: la ruta se deriva de tipo e ID. Si falta el archivo, el GET lo regenera al vuelo sin persistirlo. Respaldar esta carpeta junto con la base y los firmados; un cambio de estado posterior no regenera el snapshot.
 
-## Estado actualizado de H1-H3 (2026-09-24)
+## Estado vigente de H1-H3 (actualizado 2026-09-25)
 
-H1 y H2 se controlan en servicios y repositorios sin una nueva restricción de unicidad sobre `revision_tecnica_id`, porque la base de validación previa ya contiene duplicados históricos y `ddl-auto=update` no podría crear esa restricción sin depuración de datos. Se usan bloqueos pesimistas por calibración y comprobaciones de existencia; cualquier informe existente impide otra emisión para esa calibración. H3 reintenta la **operación completa** en transacciones nuevas para los cuatro correlativos. Las filas históricas duplicadas no se borraron ni se modificaron.
+H1 y H2 se controlan en servicios y repositorios sin una nueva restricción de unicidad sobre `revision_tecnica_id`, porque la base de validación previa ya contiene duplicados históricos y `ddl-auto=update` no podría crear esa restricción sin depuración de datos. Se usan bloqueos pesimistas por calibración y comprobaciones de existencia: un informe activo de otra revisión bloquea la emisión, mientras que un informe `ANULADO` permanece en el historial y permite recertificar. H3 usa contador anual bloqueado dentro de la transacción y reintenta la **operación completa** en transacciones nuevas. Las filas históricas duplicadas no se borraron ni se modificaron.
 
 ## Respuesta a FreeBuff (2026-09-24)
 
-La descripción anterior de H1-H3 es histórica: [historial E4](HISTORIAL_VALIDACION.md#e4) contiene la refutación y [VALIDACION.md](VALIDACION.md) su estado vigente. El esquema actual agrega `correlativos_contadores(prefijo PRIMARY KEY, ultimo)`. La transacción bloquea la fila anual `E26`/`COI26`/`OT26`/`IT26` hasta confirmar el documento; el contador y su documento se revierten juntos. En un prefijo nuevo, el contador se inicializa con el número de documentos históricos del mismo tipo/año, y el retry cubre la carrera de inserción inicial. No se migraron ni borraron filas previas.
+La primera descripción de H1-H3 (E3) es histórica: [historial E4](HISTORIAL_VALIDACION.md#e4) contiene la refutación y [VALIDACION.md](VALIDACION.md) su estado vigente. El esquema actual agrega `correlativos_contadores(prefijo PRIMARY KEY, ultimo)`. La transacción bloquea la fila anual `E26`/`COI26`/`OT26`/`IT26` hasta confirmar el documento; el contador y su documento se revierten juntos. En un prefijo nuevo, el contador se inicializa con el número de documentos históricos del mismo tipo/año, y el retry cubre la carrera de inserción inicial. No se migraron ni borraron filas previas.
 
 `informes_tecnicos` agrega `fecha_anulacion` y `motivo_anulacion`, además del estado `ANULADO`. Los informes anulados permanecen en el historial y conservan su correlativo, pero no cuentan como vigentes al validar una nueva emisión. Las filas previas con duplicados históricos no fueron corregidas automáticamente.
 

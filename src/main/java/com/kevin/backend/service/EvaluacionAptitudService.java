@@ -67,8 +67,12 @@ public class EvaluacionAptitudService {
 
         OrdenDeTrabajo orden = evaluacion.getOrdenDeTrabajo();
         if (resultado == ResultadoEvaluacion.NO_APTO) {
+            TransicionesEstado.validarTransicion(orden.getEstado(), EstadoOrdenTrabajo.EN_ESPERA_CLIENTE,
+                    TransicionesEstado.ORDEN_INTERNA);
             orden.setEstado(EstadoOrdenTrabajo.EN_ESPERA_CLIENTE);
         } else if (resultado == ResultadoEvaluacion.APTO) {
+            TransicionesEstado.validarTransicion(orden.getEstado(), EstadoOrdenTrabajo.EN_PROCESO,
+                    TransicionesEstado.ORDEN_INTERNA);
             orden.setEstado(EstadoOrdenTrabajo.EN_PROCESO);
         }
         ordenDeTrabajoRepository.save(orden);
@@ -106,11 +110,15 @@ public class EvaluacionAptitudService {
             nuevaEvaluacion.setResultado(ResultadoEvaluacion.PENDIENTE);
             evaluacionRepository.save(nuevaEvaluacion);
 
+            TransicionesEstado.validarTransicion(orden.getEstado(), EstadoOrdenTrabajo.PENDIENTE,
+                    TransicionesEstado.ORDEN_INTERNA);
             orden.setEstado(EstadoOrdenTrabajo.PENDIENTE); // vuelve a estar lista para re-evaluar
             ordenDeTrabajoRepository.save(orden);
 
             return toDTO(nuevaEvaluacion);
         } else {
+            TransicionesEstado.validarTransicion(orden.getEstado(), EstadoOrdenTrabajo.CANCELADA,
+                    TransicionesEstado.ORDEN_INTERNA);
             orden.setEstado(EstadoOrdenTrabajo.CANCELADA);
             ordenDeTrabajoRepository.save(orden);
             return toDTO(evaluacion);

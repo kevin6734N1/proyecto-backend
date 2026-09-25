@@ -2,6 +2,19 @@
 
 **Código evaluado:** `4c3cbb8` (2026-09-24). Cada hallazgo tiene una ficha única. `RESUELTO` indica que la conducta señalada se verificó en el alcance descrito; `ABIERTO` indica una regla aún sin defender, una decisión pendiente o evidencia contradictoria sin comparación controlada. Los textos previos y sus veredictos se conservan literalmente en [HISTORIAL_VALIDACION.md](HISTORIAL_VALIDACION.md).
 
+## Severidad — hallazgos nuevos (verificados en E11, 2026-09-25)
+
+| Orden | Hallazgo | Severidad | Estado |
+|---|---|---|---|
+| 1 | [H9](#h9) | 🔴 **CRÍTICA** — un fallo real del servidor (incluso del propio certificado) se reporta como "error del request"; subestima incidentes en monitoreo ISO 17025 | ABIERTO; confirmado por corrida |
+| 2 | [H13](#h13) | 🟠 ALTA — segunda puerta de mutación de estado sin guard (extensión de H4) | RESUELTO en E12 |
+| 3 | [H15](#h15) | 🟠 MEDIA-ALTA — "OT implica cotización aprobada" no es invariante | RESUELTO en E12 |
+| 4 | [H14](#h14) | 🟠 ALTA (diseño) — regla de negocio nunca construida | SUPERADO como requisito: cierre manual de OT decidido |
+| 5 | [H10](#h10) | 🟡 MEDIA — migración cruda sin versionado | ABIERTO; confirmado por lectura |
+| 6 | [H12](#h12) | 🟡 MEDIA-BAJA — contador sin resincronización | ABIERTO; corrida: bloquea, no duplica |
+| 7 | [H11](#h11) | 🟡 BAJA (dev) / ALTA (prod) — consola H2 + ddl-auto | ABIERTO; confirmado por lectura |
+| 8 | [H16](#h16) | ⚪ BAJA-MEDIA — enum zombie | RESUELTO en E12 |
+
 <a id="h1"></a>
 
 ## H1 — RESUELTO en el alcance probado
@@ -24,7 +37,7 @@
 
 <a id="h2"></a>
 
-## H2 — ABIERTO para la comunicación de anulación; trazabilidad y recertificación verificadas
+## H2 — RESUELTO técnicamente; comunicación manual confirmada por Gesmin
 
 **Regla vigente:** un informe vigente bloquea una revisión ajena. La revisión propietaria puede pasar de `CONFORME` a `NO_CONFORME` con observación: el informe pasa a `ANULADO` y la calibración a `EN_PROCESO`. Tras completar la calibración se puede certificar la misma revisión o crear otra; el informe anterior permanece en el historial y no se descarga. El propio informe es el registro de anulación consultable por `GET /api/informes-tecnicos/{id}` (estado, fecha y motivo); no existe un evento separado.
 
@@ -46,9 +59,9 @@
 ### H2 revisión nueva tras ANULADO: anterior=IT260916, nueva=IT260917
 ```
 
-**Comunicación al cliente — decisión de Gesmin pendiente:** la anulación interna no acredita que el cliente haya sido avisado. El paso operativo actual es que el responsable operativo consulte `GET /api/informes-tecnicos/{id}` y, si el certificado ya se comunicó, gestione el aviso manual fuera de la API. El sistema no envía avisos ni registra constancia de aviso. Gesmin debe elegir entre mantener evidencia externa, añadir constancia manual por API o automatizar con evento persistente y consumidor; también debe fijar destinatarios, responsable y momento. Véase [API.md](API.md#registro-y-comunicación-de-una-anulación-h2).
+**Comunicación al cliente — alcance confirmado por Gesmin:** el responsable operativo consulta `GET /api/informes-tecnicos/{id}` y, si el certificado ya se comunicó, gestiona el aviso manual fuera de la API. El sistema no envía avisos ni registra constancia; `ANULADO` acredita la invalidación interna, no la recepción del aviso. No se implementa notificación automática. Véase [API.md](API.md#registro-y-comunicación-de-una-anulación-h2) y E12.
 
-**Última verificación:** Codex, 2026-09-24; script HTTP y test `respuesta_h2_nuevaRevisionTrasAnularInformePrevio` sobre `4c3cbb8`; inspección del contrato API vigente el 2026-09-24. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E3](HISTORIAL_VALIDACION.md#e3) (SUPERADO por E4/E5) → [E4](HISTORIAL_VALIDACION.md#e4) → [E5](HISTORIAL_VALIDACION.md#e5) → [E8](HISTORIAL_VALIDACION.md#e8).
+**Última verificación:** Codex, 2026-09-24; script HTTP y test `respuesta_h2_nuevaRevisionTrasAnularInformePrevio` sobre `4c3cbb8`; inspección del contrato API vigente el 2026-09-24. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E3](HISTORIAL_VALIDACION.md#e3) (SUPERADO por E4/E5) → [E4](HISTORIAL_VALIDACION.md#e4) → [E5](HISTORIAL_VALIDACION.md#e5) → [E8](HISTORIAL_VALIDACION.md#e8) → [E12](HISTORIAL_VALIDACION.md#e12).
 
 <a id="h3"></a>
 
@@ -99,36 +112,23 @@ Nota: surefire no acepta `,` para separar dos métodos de la misma clase (`#m1,m
 
 <a id="h4"></a>
 
-## H4 — ABIERTO; subcaso del informe SUPERADO
+## H4 — RESUELTO en las transiciones definidas por Gesmin
 
-**Regla vigente:** el informe solo admite carga de PDF, aprobación y envío en secuencia; `GENERADO → ENVIADO` directo se rechaza. Cotización, OT, calibración y expediente aún aceptan cambios de estado sin una máquina de transiciones.
+**Regla vigente:** `TransicionesEstado.validarTransicion` se aplica a los PATCH de cotización, OT, calibración y expediente. La OT usa dos tablas: `ORDEN_PATCH` para el PATCH manual y `ORDEN_INTERNA` para evaluación; `actual == nuevo` devuelve sin mutación. El informe conserva la secuencia `GENERADO → PDF_CARGADO → APROBADO → ENVIADO`. Las tablas exactas para Nicolás están en [API.md](API.md#5-flujo-comercial-expediente--cotización--orden) y E12. Se mantiene `BORRADOR → APROBADA` directo.
 
-**Evidencia cruda antigua (SUPERADA por E2):** `validation/requests.log` registró:
+**Evidencia actual:** `TransicionesEstadoTest` exige aprobación directa, rechaza terminales y distingue las dos puertas de OT; `FlujoEstadosServiceTest` recorre el loop NO_APTO con los servicios reales. La suite completa y el caso H15 de integración se registran en E12. El texto histórico de E1 que mostró saltos arbitrarios queda **SUPERADO por E12**; no se borra.
 
-```text
-PATCH /informes-tecnicos/4/estado?estado=ENVIADO -> 200 | {"id":4,"numero":"IT260904","revisionTecnicaId":5,"instrumentoDescripcion":"Fluke 87V - Serie SN-170403","fechaEmision":"2026-09-23","estado":"ENVIADO","pdfCargado":false,"fechaCargaPdf":null,"fechaEnvio":"2026-09-23"}
-```
-
-**Evidencia directa actual:** En el código vigente, `InformeTecnicoService.actualizarEstado` lanza excepción si no es `PDF_CARGADO → APROBADO` o `APROBADO → ENVIADO`. `CotizacionService.actualizarEstado`, `OrdenDeTrabajoService.actualizarEstado`, `CalibracionService.actualizarEstado` y `ExpedienteService.cambiarEstado` hacen `setEstado(nuevoEstado)` y guardan sin comprobar transición.
-
-**Última verificación:** Codex, 2026-09-24, inspección de código vigente; E2 probó el informe. No se repitió HTTP para los otros estados. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E2](HISTORIAL_VALIDACION.md#e2).
+**Última verificación:** Codex, 2026-09-25, código y pruebas de E12. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E2](HISTORIAL_VALIDACION.md#e2) → [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).
 
 <a id="h5"></a>
 
-## H5 — ABIERTO
+## H5 — PARCIAL: reapertura cerrada; cierre sin guards cruzados por decisión de Gesmin
 
-**Regla vigente:** el cierre del expediente no valida OT, evaluación ni informe y permite reabrirlo.
+**Regla vigente:** `CERRADO` y `RECHAZADO` son terminales; `CERRADO → EN_PROCESO` ya responde 400. Gesmin confirmó que un expediente puede cerrarse con una OT `CANCELADA`, por lo que no se añadió ese guard. El cierre tampoco valida automáticamente evaluaciones o informes. El posible control adicional de esos componentes permanece **ABIERTO** sin regla aprobada; no se declara un cierre global del hallazgo.
 
-**Evidencia cruda:** `validation/requests.log` caso 9 registró OT `CANCELADA` y evaluación `NO_APTO` sin respuesta, y luego:
+**Evidencia actual:** la tabla `TransicionesEstado.EXPEDIENTE` rechaza salir de `CERRADO` y `TransicionesEstadoTest` lo comprueba. La evidencia HTTP previa de E1, que reabría el expediente, está **SUPERADA por E12**. No se probó aquí una validación cruzada de cierre porque no se implementó.
 
-```text
-PATCH /expedientes/1/estado?estado=EN_PROCESO -> 200 | {"id":1,"numero":"E260901","fecha":"2026-09-23","clienteId":1,"clienteRazonSocial":"Acme Val 170403","estado":"EN_PROCESO"}
-PATCH /expedientes/1/estado?estado=CERRADO -> 200 | {"id":1,"numero":"E260901","fecha":"2026-09-23","clienteId":1,"clienteRazonSocial":"Acme Val 170403","estado":"CERRADO"}
-```
-
-El código actual de `ExpedienteService.cambiarEstado` sigue ejecutando `exp.setEstado(nuevoEstado); return ...save(exp)` sin otras comprobaciones.
-
-**Última verificación:** FreeBuff, 2026-09-23 (HTTP); Codex, 2026-09-24 (inspección de código). **Historial:** [E1](HISTORIAL_VALIDACION.md#e1).
+**Última verificación:** Codex, 2026-09-25, código y pruebas de E12. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).
 
 <a id="h6"></a>
 
@@ -172,3 +172,138 @@ GET /informes-tecnicos/99999 -> 400 | {"mensaje":"Informe Técnico no encontrado
 El handler vigente retorna `HttpStatus.BAD_REQUEST` para `RuntimeException`.
 
 **Última verificación:** FreeBuff, 2026-09-23 (HTTP); Codex, 2026-09-24 (inspección de handler). **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E5](HISTORIAL_VALIDACION.md#e5).
+
+<a id="h9"></a>
+
+## H9 — ABIERTO, confirmado por corrida (CRÍTICO): el handler disfraza fallos de servidor como errores del cliente
+
+**Regla observada (hecho):** `GlobalExceptionHandler.handleRuntime` captura **toda** `RuntimeException` (línea 30-35 de `src/main/java/com/kevin/backend/exception/GlobalExceptionHandler.java`) y responde siempre `400 Bad Request` con `ex.getMessage()`. Solo escapan de esa rama las validaciones de Bean Validation (`MethodArgumentNotValidException`) y el `CorrelativoAgotadoException` (409 con handler propio, líneas 22-28). Toda `IllegalStateException`, `IOException` envuelta u otro bug de programación/infraestructura cae en la rama genérica y sale como error del request, con el mensaje interno expuesto en el body.
+
+**Evidencia cruda (corrida E11, `AuditoriaHallazgosNuevos4c3cbb8Test.h9_falloRealDeAlmacenamientoDelCertificadoSeRespondeComo4xx` sobre base H2 en memoria):** se recorrió el flujo completo hasta el informe (`GENERADO`), se provocó un fallo REAL de infraestructura en el almacenamiento del certificado (el directorio `./data/pdf-firmados` pasa a ser un archivo regular; la lógica de negocio permanece íntegra) y se midió la respuesta:
+
+```text
+### H9 sonda directa: java.lang.IllegalStateException: No se pudo almacenar el PDF firmado.
+      [causa: java.nio.file.FileAlreadyExistsException: .../data/pdf-firmados]
+### H9 HTTP POST /api/informes-tecnicos/1/pdf-firmado (fallo real de disco)
+### H9 HTTP 400 {"mensaje":"No se pudo almacenar el PDF firmado."}
+```
+
+Un fallo del propio certificado —el documento ISO 17025 por excelencia del sistema— se reporta con el código que HTTP reserva para "el cliente se equivocó". Ramas del handler, por corrida aislada (`HallazgoH9RamasHandlerTest`):
+
+```text
+### H9b excepción de NEGOCIO (IllegalArgumentException) → HTTP 400 {"mensaje":"Cliente no encontrado con id 99999"}
+### H9b fallo de SERVIDOR (IllegalStateException + IOException de disco) → HTTP 400 {"mensaje":"No se pudo almacenar el PDF firmado."}
+### H9b veredicto: ambas caen en handleRuntime(RuntimeException) → mismo código HTTP
+```
+
+**Reproducción:** `./mvnw -q -Dtest='AuditoriaHallazgosNuevos4c3cbb8Test,HallazgoH9RamasHandlerTest' -Dsurefire.failIfNoSpecifiedTests=true test`
+
+**Responsable de la corrección (Codex):** separar excepciones de negocio (`IllegalArgumentException` y propias, → 400/404/409 según contrato) del resto de `RuntimeException` (→ 500 + log de servidor). Es ~30 min de trabajo y no depende de ninguna decisión de Gesmin; solo cambia el código HTTP y el log, no el contrato de mensajes.
+
+**Última verificación:** FreeBuff, 2026-09-25, corrida E11 sobre `4c3cbb8`. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11). Se solapa y agrava [H8](#h8): no solo el "no encontrado", cualquier bug de servidor queda disfrazado de 400.
+
+<a id="h10"></a>
+
+## H10 — ABIERTO, confirmado por lectura: migración de esquema cruda en cada arranque, sin control de versión
+
+**Evidencia citada:** `src/main/java/com/kevin/backend/config/InformeEstadoSchemaMigration.java:22-23`:
+
+```java
+jdbc.execute("ALTER TABLE informes_tecnicos ALTER COLUMN estado "
+        + "ENUM('APROBADO', 'ENVIADO', 'GENERADO', 'PDF_CARGADO', 'ANULADO') NOT NULL");
+```
+
+Se ejecuta sin condición en cada arranque (`ApplicationRunner`). El `pom.xml` no contiene Flyway ni Liquibase (verificado por grep: `sin flyway/liquibase`); el resto del esquema depende de `ddl-auto=update`. No hay registro de qué migraciones se aplicaron. Es sintaxis específica de H2: el día que se cambie de motor, el arranque se rompe sin aviso.
+
+**Nota honesta (no se puede probar por corrida):** el riesgo es de despliegue futuro (PostgreSQL/MySQL), no de la configuración actual; un test sobre H2 solo demostraría lo que ya demostró `InformeEstadoSchemaMigrationTest` (que la sentencia es idempotente en H2). Demostrar el fallo requeriría una base PostgreSQL real. La lectura del código es la evidencia completa disponible.
+
+**Responsable (Codex):** introducir versionado de migraciones (Flyway/Liquibase) o, como mínimo, un mecanismo de "migración ya aplicada". Sesión de higiene de infraestructura, junto con H11.
+
+**Última verificación:** FreeBuff, 2026-09-25, inspección con líneas citadas. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11).
+
+<a id="h11"></a>
+
+## H11 — ABIERTO, confirmado por lectura: consola H2 habilitada en la configuración única (sin perfiles)
+
+**Evidencia citada:** `src/main/resources/application.properties` (único properties de `src/main/resources/`; no existen `application-dev.properties` ni `application-prod.properties`):
+
+```text
+Línea 8:  spring.jpa.hibernate.ddl-auto=update
+Línea 11: spring.h2.console.enabled=true
+Línea 12: spring.h2.console.path=/h2-console
+Línea 13: spring.h2.console.settings.web-allow-others=true
+```
+
+Además `pom.xml:71` incluye `spring-boot-h2console`. No hay `spring-boot-starter-actuator` (verificado por grep). Como no hay separación por perfiles, esta configuración ES el perfil productivo si la app se despliega así: la consola H2 quedaría accesible desde fuera con usuario `sa` y contraseña vacía.
+
+**Responsable (Codex + decisión Gesmin sobre el motor de destino):** separar `application-dev.properties` / `application-prod.properties` antes de cualquier despliegue.
+
+**Última verificación:** FreeBuff, 2026-09-25, inspección con líneas citadas. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11).
+
+<a id="h12"></a>
+
+## H12 — ABIERTO, confirmado por corrida (con matiz): el contador no se resincroniza tras borrados del año en curso
+
+**Evidencia citada:** `src/main/java/com/kevin/backend/service/CorrelativoService.java:26-31`: el `orElseGet` de `contadores.bloquear(prefijo)` inicializa el contador nuevo con `historicos.getAsLong()` (un `COUNT()`), y solo la primera vez que no existe la fila. Después de ese momento, nada vuelve a consultar el conteo real.
+
+**Evidencia cruda (corrida E11, `h12_contadorRecreadoSeAlimentaDeCountYColisionaConVivos`):** se crearon `E260902`, `E260903`, `E260904` y luego se simuló la limpieza manual descrita en el informe: se borró una fila INTERNA (`E260903`, no la última) y la fila `E26` de `correlativos_contadores`:
+
+```text
+### H12 vivos=E260902,E260904 (COUNT previo con las tres=4)
+### H12 fila interna E260903 y contador E26 borrados; contador recreado desde COUNT()
+### H12 nueva creación FALLO: CorrelativoAgotadoException: No se pudo asignar un correlativo único tras 3 intentos.
+      [raíz: ...Unique index or primary key violation: ...EXPEDIENTES(NUMERO ...) VALUES ( /* 4 */ 'E260904' )]
+### H12 veredicto: el contador recreado NO se resincroniza con el máximo vivo; la creación falla por colisión
+```
+
+**Matiz respecto del informe:** el efecto medido es incluso peor de lo descrito: el `COUNT()` post-borrado (2) hizo recrear el contador y la siguiente creación intentó reasignar `E260904`, que ESTÁ viva → el intento colisiona 3 veces (el `CorrelativoRetry` no ayuda porque el desalineamiento no es transitorio) y **toda creación de expedientes queda bloqueada** (409) hasta una corrección manual. No duplica números (el unique constraint protege), pero deja la ruta inutilizable.
+
+**Decisión de negocio implicada (no implementar sin Gesmin):** si Gesmin prevé reseeds o limpiezas de datos de prueba, la inicialización debería calcular `MAX(número)` vivo y no `COUNT()`; si nunca se borra nada, la conducta actual es irrelevante en producción. La corrección es de código (Codex), pero la necesidad depende de la práctica operativa (Gesmin).
+
+**Última verificación:** FreeBuff, 2026-09-25, corrida E11. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11).
+
+<a id="h13"></a>
+
+## H13 — RESUELTO en las puertas de mutación conocidas
+
+**Regla vigente:** `EvaluacionAptitudService.registrarResultado` y `registrarRespuestaCliente` validan con `ORDEN_INTERNA` antes de mutar OT. `RevisionTecnicaService.registrarResultado` valida `COMPLETADA → EN_PROCESO` con la tabla de Calibración. La puerta adicional `CalibracionService.registrarMediciones` usa la misma tabla. Los PATCH aplican las tablas de H4.
+
+**Evidencia:** búsqueda de `setEstado` en los servicios y pruebas `TransicionesEstadoTest`; `FlujoEstadosServiceTest` recorre el loop interno, y la suite completa de E12 cubre las rutas adversariales previas. El hecho de E11 de mutaciones directas sin guard queda **SUPERADO por E12**.
+
+**Última verificación:** Codex, 2026-09-25. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).
+
+<a id="h14"></a>
+
+## H14 — SUPERADO como requisito automático; OT COMPLETADA sigue manual
+
+**Decisión vigente de Kevin/Gesmin:** no crear lógica automática que marque la OT `COMPLETADA`. El operador puede aplicar `PATCH /api/ordenes-trabajo/{id}/estado?estado=COMPLETADA` desde `EN_PROCESO`; `COMPLETADA` es terminal. El hallazgo de E11, «ningún flujo la marca automáticamente», sigue siendo verdadero como hecho, pero ya no representa una función pendiente dentro del alcance confirmado.
+
+**Evidencia:** `TransicionesEstado.ORDEN_PATCH` permite `EN_PROCESO → COMPLETADA` y rechaza salir de `COMPLETADA`; `TransicionesEstadoTest` verifica la terminalidad. No se construyó automatismo.
+
+**Última verificación:** Codex, 2026-09-25. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).
+
+<a id="h15"></a>
+
+## H15 — RESUELTO: cotización APROBADA con OT asociada no se degrada
+
+**Regla vigente:** `APROBADA` es terminal. Si ya existe una OT, `CotizacionService.actualizarEstado` devuelve un mensaje específico al intentar cambiar el estado. Repetir `APROBADA` es idempotente. `BORRADOR → APROBADA` directo se mantiene.
+
+**Evidencia cruda:** E11 probó la degradación antigua; **SUPERADA por E12**. La misma prueba de integración fue conservada y actualizada para exigir el guard:
+
+```text
+### H15 OT OT260901 estado=PENDIENTE creada sobre COI COI260901 (guard de APROBADA funcionó al crear)
+### H15 PATCH COI COI260901 estado=RECHAZADA con OT viva → bloqueado: No se puede cambiar la cotización aprobada: ya tiene una Orden de Trabajo asociada.
+### H15 invariante: OT 1 sigue PENDIENTE sobre cotización APROBADA
+```
+
+**Última verificación:** Codex, 2026-09-25, test focalizado y suite E12. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).
+
+<a id="h16"></a>
+
+## H16 — RESUELTO: `ACEPTADO` retirado del expediente
+
+**Regla vigente:** `EstadoExpediente` solo admite `EN_PROCESO`, `EN_ESPERA`, `RECHAZADO` y `CERRADO`. `API.md` y `DB.md` ya no anuncian `ACEPTADO`. Antes de retirarlo, `SELECT ESTADO, COUNT(*) FROM EXPEDIENTES GROUP BY ESTADO` sobre `data/gesmin.mv.db` devolvió únicamente `CERRADO | 1`; no hubo filas que migrar.
+
+**Evidencia:** enum, contrato y esquema actualizados; consulta de BD y regresión de E12. La pregunta histórica de E11 queda **SUPERADA por la decisión de Gesmin** de eliminarlo.
+
+**Última verificación:** Codex, 2026-09-25. **Historial:** [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12).

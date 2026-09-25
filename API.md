@@ -116,9 +116,9 @@ Igual que marcas. `{ "nombre": "87V" }`.
 |--------|------|--------------|
 | GET | `/` y `/{id}` | |
 | POST | `/?clienteId=1` | Sin body. Genera número automático |
-| PATCH | `/{id}/estado?estado=ACEPTADO` | |
+| PATCH | `/{id}/estado?estado=CERRADO` | Solo desde `EN_PROCESO`. |
 
-`estado`: `EN_PROCESO` · `RECHAZADO` · `EN_ESPERA` · `ACEPTADO` · `CERRADO`
+`estado`: `EN_PROCESO` · `RECHAZADO` · `EN_ESPERA` · `CERRADO`. `CERRADO` y `RECHAZADO` son terminales; se permite `EN_ESPERA → EN_PROCESO`. El cierre no exige OT completada y admite OT cancelada según la decisión de Gesmin.
 
 ### Cotizaciones — `/api/cotizaciones`
 | Método | Ruta | Body |
@@ -127,7 +127,7 @@ Igual que marcas. `{ "nombre": "87V" }`.
 | POST | `/` | Ver ejemplo abajo |
 | PATCH | `/{id}/estado?estado=APROBADA` | |
 
-`estado`: `BORRADOR` (nace) · `ENVIADA` · `APROBADA` · `RECHAZADA`
+`estado`: `BORRADOR` (nace) · `ENVIADA` · `APROBADA` · `RECHAZADA`. Transiciones: `BORRADOR → ENVIADA/APROBADA/RECHAZADA`, `ENVIADA → APROBADA/RECHAZADA`; `APROBADA` y `RECHAZADA` son terminales. `BORRADOR → APROBADA` directo sigue permitido. Una cotización aprobada con OT asociada no puede degradarse.
 
 ```json
 POST /api/cotizaciones
@@ -163,9 +163,9 @@ POST /api/cotizaciones
 | POST | `/` | `{ "cotizacionId": 1, "fecha": "2026-09-22", "hora": "14:30:00", "ejecutor": "...", "area": "...", "lugar": "...", "detalles": [{ "actividad": "Calibracion de...", "evaluacionInicial": null, "conclusiones": null, "recomendaciones": null }] }` |
 | PATCH | `/{id}/estado?estado=EN_PROCESO` | |
 
-`estado`: `PENDIENTE` (nace) · `EN_PROCESO` · `EN_ESPERA_CLIENTE` · `COMPLETADA` · `CANCELADA`
+`estado`: `PENDIENTE` (nace) · `EN_PROCESO` · `EN_ESPERA_CLIENTE` · `COMPLETADA` · `CANCELADA`. Por PATCH: `PENDIENTE → EN_PROCESO/CANCELADA`, `EN_PROCESO → COMPLETADA/CANCELADA`, `EN_ESPERA_CLIENTE → CANCELADA`. `COMPLETADA` y `CANCELADA` son terminales. Solo la evaluación puede pasar la OT a `EN_ESPERA_CLIENTE` y devolverla a `PENDIENTE` tras autorización del cliente.
 
-> 🔒 **Regla:** solo se puede crear una orden si la cotización está **`APROBADA`**. Genera `numero` automático (ej. `OT260901`).
+> 🔒 **Regla:** solo se puede crear una orden si la cotización está **`APROBADA`**. Genera `numero` automático (ej. `OT260901`). `COMPLETADA` se marca manualmente por PATCH desde `EN_PROCESO`; no hay automatismo nuevo.
 
 ---
 
@@ -212,7 +212,7 @@ PUT /api/calibraciones/1/mediciones
 
 > 💡 El backend calcula `error = valorMedido − valorPatron` automáticamente. No lo envíes.
 >
-> 🔒 **Regla:** solo se puede crear una calibración si la evaluación tiene resultado **`APTO`**.
+> 🔒 **Regla:** solo se puede crear una calibración si la evaluación tiene resultado **`APTO`**. Transiciones: `PROGRAMADA → EN_PROCESO`; `EN_PROCESO → COMPLETADA/CANCELADA`; `COMPLETADA → EN_PROCESO` conserva el ciclo de corrección. `CANCELADA` es terminal. Registrar mediciones también valida esta tabla antes de poner `EN_PROCESO`.
 
 ### Revisiones técnicas — `/api/revisiones-tecnicas`
 | Método | Ruta | Body / Query |
@@ -353,8 +353,8 @@ El backend compara resultado y observaciones, y anula el certificado vigente ant
 
 | # | Hueco | Riesgo en la UI | Workaround sugerido mientras tanto |
 |---|---|---|---|
-| C | Los PATCH de estado de cotización, OT, calibración y expediente aún permiten saltos o regresiones. **El informe ya exige PDF real → aprobación → envío.** | Un combo libre puede generar estados inconsistentes en los otros módulos. | Ofrecé solo las transiciones que correspondan en cada pantalla. Para el informe usa carga multipart, luego `APROBADO` y después `ENVIADO`. |
-| D | **El cierre de expediente no valida nada**: se puede cerrar con OTs sin completar, evaluaciones `NO_APTO` sin respuesta del cliente, o informes nunca enviados. También se reabre un CERRADO con un PATCH. | El expediente puede quedar "CERRADO" con trabajo pendiente adentro. | Antes de ofrecer el botón "Cerrar expediente", validá del lado del frontend que sus OTs estén `COMPLETADA`/`CANCELADA` y que no queden evaluaciones `PENDIENTE`/`NO_APTO` sin respuesta. Confirmar con Gesmin si hace falta alguna regla real aquí. |
+| C | **SUPERADO en E12:** los PATCH de cotización, OT, calibración y expediente validan las tablas anteriores; el informe conserva su flujo firmado → aprobación → envío. | Los saltos y regresiones no permitidos responden 400. | Mostrar solo destinos permitidos; repetir el mismo estado devuelve 200 sin mutación. |
+| D | **PARCIAL:** `CERRADO` ya es terminal. El cierre no exige OT completada ni bloquea por OT cancelada, según Gesmin; tampoco valida automáticamente evaluaciones o informes. | La UI debe presentar el cierre conforme al proceso operativo acordado. | No mostrar opción de reapertura de `CERRADO`; el backend la rechaza. |
 | E | **Revisiones simultáneas sobre la misma calibración se permiten** (y las `PENDIENTE` no reclamadas quedan huérfanas para siempre). | Dos usuarios podrían crear revisiones en paralelo y una queda sin usar. | Deshabilitá "Nueva revisión" si la calibración ya tiene una revisión con `resultado = PENDIENTE` (`GET /revisiones-tecnicas?calibracionId=X`). |
 
 ### 10.3 Errores: recordatorios verificados
@@ -363,13 +363,13 @@ El backend compara resultado y observaciones, y anula el certificado vigente ant
 - El contador de correlativos se bloquea por prefijo en la BD. Si se agotan 3 reintentos por contención, se devuelve **409** con `mensaje` legible.
 - No hay `POST /informes-tecnicos`: los informes **solo** nacen automáticamente de una revisión CONFORME (405 si lo intentás).
 
-> C, D y E siguen pendientes; el estado vigente está en [VALIDACION.md](VALIDACION.md), y la auditoría y su respuesta originales en [historial E4–E5](HISTORIAL_VALIDACION.md#e4).
+> C está superado, D es parcial y E sigue pendiente; el estado vigente está en [VALIDACION.md](VALIDACION.md), y la auditoría y su respuesta originales en [historial E4–E5](HISTORIAL_VALIDACION.md#e4).
 
 ---
 
 ## 11. PDF generados y PDF firmado (2026-09-24)
 
-Los tres reportes se generan al pedirlos. No hay que subir un archivo para cotización u orden. Cada GET responde `application/pdf` con `Content-Disposition: attachment`; en React/axios usa `responseType: "blob"`.
+Los tres reportes se generan y guardan una vez al crear la cotización, OT o informe técnico. Son snapshots: los cambios de estado posteriores no modifican esos archivos. Cada GET sirve el PDF guardado; si falta (registro antiguo o fallo de escritura), lo genera al vuelo como respaldo. El registro en BD permanece creado aunque falle el guardado del PDF. No hay que subir archivo para cotización u orden. Cada GET responde `application/pdf` con `Content-Disposition: attachment`; en React/axios usa `responseType: "blob"`.
 
 | Documento | Endpoint | Cuándo existe |
 |---|---|---|
@@ -378,7 +378,7 @@ Los tres reportes se generan al pedirlos. No hay que subir un archivo para cotiz
 | Informe técnico sin firma | `GET /api/informes-tecnicos/{id}/pdf` | Tras revisión `CONFORME`, que crea el correlativo IT. |
 | Informe firmado | `GET /api/informes-tecnicos/{id}/pdf-firmado` | Tras cargar el archivo y pasar a `APROBADO`. |
 
-Para cargar el firmado: `POST /api/informes-tecnicos/{id}/pdf-firmado` con `multipart/form-data`, nombre de campo **`archivo`**, archivo PDF de 1 byte a 10 MB. Se valida que sea un PDF legible y no se permite reemplazarlo. La respuesta es `InformeTecnicoDTO` con `pdfCargado=true`, `fechaCargaPdf` y estado `PDF_CARGADO`. El archivo se guarda en `./data/pdf-firmados/{id}.pdf`; hay que respaldar esa carpeta junto con H2. El booleano histórico por sí solo ya no sirve para aprobar: el archivo debe existir.
+Para cargar el firmado: `POST /api/informes-tecnicos/{id}/pdf-firmado` con `multipart/form-data`, nombre de campo **`archivo`**, archivo PDF de 1 byte a 10 MB. Se valida que sea un PDF legible y no se permite reemplazarlo. La respuesta es `InformeTecnicoDTO` con `pdfCargado=true`, `fechaCargaPdf` y estado `PDF_CARGADO`. El archivo se guarda en `./data/pdf-firmados/{id}.pdf`; hay que respaldar esa carpeta junto con H2 y `./data/pdf-generados/`. El booleano histórico por sí solo ya no sirve para aprobar: el archivo debe existir.
 
 Después se usa `PATCH /api/informes-tecnicos/{id}/estado?estado=APROBADO` y, cuando se confirme la entrega al cliente, `PATCH ...?estado=ENVIADO` registra la fecha actual. La API **no envía correos** todavía; ese último PATCH es un registro manual de la fecha de envío. Los intentos de saltar estados devuelven 400 con `mensaje`.
 
@@ -410,7 +410,7 @@ La afirmación previa de H2/H3 en esta sección quedó refutada por la auditorí
 
 **Paso operativo vigente mientras Gesmin decide el procedimiento:** después de reabrir una revisión, el responsable operativo (por definir en Gesmin) consulta `GET /api/informes-tecnicos/{id}` para leer el motivo y la fecha de anulación. Si el certificado anterior ya fue comunicado al cliente, el aviso se gestiona manualmente fuera de esta API según el procedimiento que defina Gesmin. El backend **no envía avisos ni guarda confirmación, destinatario o fecha de comunicación de la anulación**. Por eso `ANULADO` acredita la invalidación interna, no que el cliente haya sido informado; la UI no debe presentarlo como “cliente notificado”.
 
-**Decisión pendiente de Gesmin:** elegir entre (1) aviso manual con evidencia fuera del sistema; (2) aviso manual con un futuro endpoint de constancia (responsable, destinatario, fecha y canal); o (3) evento persistente/outbox y consumidor de notificación automática. También debe definir qué informes requieren aviso, quién lo hace y a qué destinatarios. Hasta esa decisión no se crea evento separado ni mecanismo automático.
+**Alcance confirmado por Gesmin:** el aviso de anulación permanece manual fuera del sistema. No se crea endpoint de constancia, evento ni consumidor automático. El responsable, destinatario y momento se rigen por el procedimiento operativo externo; `ANULADO` no acredita aviso al cliente.
 
 ```http
 GET /api/informes-tecnicos/1

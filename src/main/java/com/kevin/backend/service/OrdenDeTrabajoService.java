@@ -19,14 +19,17 @@ public class OrdenDeTrabajoService {
     private final CotizacionRepository cotizacionRepository;
     private final CorrelativoRetry correlativos;
     private final CorrelativoService contador;
+    private final DocumentoGeneradoService pdfGenerados;
 
     public OrdenDeTrabajoService(OrdenDeTrabajoRepository ordenDeTrabajoRepository,
                                   CotizacionRepository cotizacionRepository,
-                                  CorrelativoRetry correlativos, CorrelativoService contador) {
+                                  CorrelativoRetry correlativos, CorrelativoService contador,
+                                  DocumentoGeneradoService pdfGenerados) {
         this.ordenDeTrabajoRepository = ordenDeTrabajoRepository;
         this.cotizacionRepository = cotizacionRepository;
         this.correlativos = correlativos;
         this.contador = contador;
+        this.pdfGenerados = pdfGenerados;
     }
 
     public List<OrdenDeTrabajoDTO> listar() {
@@ -38,7 +41,9 @@ public class OrdenDeTrabajoService {
     }
 
     public OrdenDeTrabajoDTO crear(OrdenDeTrabajoDTO dto) {
-        return correlativos.ejecutar(() -> crearUnaVez(dto));
+        OrdenDeTrabajoDTO creada = correlativos.ejecutar(() -> crearUnaVez(dto));
+        pdfGenerados.guardarOrden(creada.id());
+        return creada;
     }
 
     private OrdenDeTrabajoDTO crearUnaVez(OrdenDeTrabajoDTO dto) {
@@ -83,6 +88,8 @@ public class OrdenDeTrabajoService {
     @Transactional
     public OrdenDeTrabajoDTO actualizarEstado(Long id, EstadoOrdenTrabajo nuevoEstado) {
         OrdenDeTrabajo orden = buscarEntidadPorId(id);
+        if (orden.getEstado() == nuevoEstado) return toDTO(orden);
+        TransicionesEstado.validarTransicion(orden.getEstado(), nuevoEstado, TransicionesEstado.ORDEN_PATCH);
         orden.setEstado(nuevoEstado);
         return toDTO(ordenDeTrabajoRepository.save(orden));
     }

@@ -67,6 +67,8 @@ public class CalibracionService {
     @Transactional
     public CalibracionDTO actualizarEstado(Long id, EstadoCalibracion nuevoEstado) {
         Calibracion calibracion = buscarEntidadPorId(id);
+        if (calibracion.getEstado() == nuevoEstado) return toDTO(calibracion);
+        TransicionesEstado.validarTransicion(calibracion.getEstado(), nuevoEstado, TransicionesEstado.CALIBRACION);
         calibracion.setEstado(nuevoEstado);
         return toDTO(calibracionRepository.save(calibracion));
     }
@@ -92,6 +94,8 @@ public class CalibracionService {
             calibracion.getPuntos().add(punto);
         }
 
+        TransicionesEstado.validarTransicion(calibracion.getEstado(), EstadoCalibracion.EN_PROCESO,
+                TransicionesEstado.CALIBRACION);
         calibracion.setEstado(EstadoCalibracion.EN_PROCESO);
         return toDTO(calibracionRepository.save(calibracion));
     }

@@ -24,6 +24,8 @@ public class CotizacionService {
     private final ServicioRepository servicioRepository;
     private final CorrelativoRetry correlativos;
     private final CorrelativoService contador;
+    private final DocumentoGeneradoService pdfGenerados;
+    private final OrdenDeTrabajoRepository ordenDeTrabajoRepository;
 
     public CotizacionService(CotizacionRepository cotizacionRepository,
                               ClienteRepository clienteRepository,
@@ -31,7 +33,9 @@ public class CotizacionService {
                               ExpedienteRepository expedienteRepository,
                               ProductoRepository productoRepository,
                               ServicioRepository servicioRepository,
-                              CorrelativoRetry correlativos, CorrelativoService contador) {
+                              CorrelativoRetry correlativos, CorrelativoService contador,
+                              DocumentoGeneradoService pdfGenerados,
+                              OrdenDeTrabajoRepository ordenDeTrabajoRepository) {
         this.cotizacionRepository = cotizacionRepository;
         this.clienteRepository = clienteRepository;
         this.contactoRepository = contactoRepository;
@@ -40,6 +44,8 @@ public class CotizacionService {
         this.servicioRepository = servicioRepository;
         this.correlativos = correlativos;
         this.contador = contador;
+        this.pdfGenerados = pdfGenerados;
+        this.ordenDeTrabajoRepository = ordenDeTrabajoRepository;
     }
 
     public List<CotizacionDTO> listar() {
@@ -51,7 +57,9 @@ public class CotizacionService {
     }
 
     public CotizacionDTO crear(CotizacionDTO dto) {
-        return correlativos.ejecutar(() -> crearUnaVez(dto));
+        CotizacionDTO creada = correlativos.ejecutar(() -> crearUnaVez(dto));
+        pdfGenerados.guardarCotizacion(creada.id());
+        return creada;
     }
 
     private CotizacionDTO crearUnaVez(CotizacionDTO dto) {
@@ -90,6 +98,12 @@ public class CotizacionService {
     @Transactional
     public CotizacionDTO actualizarEstado(Long id, EstadoCotizacion nuevoEstado) {
         Cotizacion cotizacion = buscarEntidadPorId(id);
+        if (cotizacion.getEstado() == nuevoEstado) return toDTO(cotizacion);
+        if (cotizacion.getEstado() == EstadoCotizacion.APROBADA
+                && !ordenDeTrabajoRepository.findByCotizacionId(id).isEmpty()) {
+            throw new IllegalArgumentException("No se puede cambiar la cotización aprobada: ya tiene una Orden de Trabajo asociada.");
+        }
+        TransicionesEstado.validarTransicion(cotizacion.getEstado(), nuevoEstado, TransicionesEstado.COTIZACION);
         cotizacion.setEstado(nuevoEstado);
         return toDTO(cotizacionRepository.save(cotizacion));
     }

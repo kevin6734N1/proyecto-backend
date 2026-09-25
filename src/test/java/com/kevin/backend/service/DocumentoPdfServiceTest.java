@@ -57,6 +57,45 @@ class DocumentoPdfServiceTest {
     }
 
     @Test
+    void pdfGeneradosQuedanComoSnapshotYElGetRetrocompatibleRespetaAnulacion() throws Exception {
+        CotizacionRepository cotizaciones = mock(CotizacionRepository.class);
+        OrdenDeTrabajoRepository ordenes = mock(OrdenDeTrabajoRepository.class);
+        InformeTecnicoRepository informes = mock(InformeTecnicoRepository.class);
+        Datos datos = datos();
+        when(cotizaciones.findById(1L)).thenReturn(Optional.of(datos.cotizacion()));
+        when(ordenes.findById(2L)).thenReturn(Optional.of(datos.orden()));
+        when(informes.findById(3L)).thenReturn(Optional.of(datos.informe()));
+
+        DocumentoPdfService generador = new DocumentoPdfService(cotizaciones, ordenes, informes);
+        DocumentoGeneradoService almacen = new DocumentoGeneradoService(generador, temporal.toString());
+        almacen.guardarCotizacion(1L);
+        almacen.guardarOrden(2L);
+        almacen.guardarInforme(3L);
+
+        Path cotizacion = temporal.resolve("cotizacion-1.pdf");
+        Path orden = temporal.resolve("orden-trabajo-2.pdf");
+        Path informe = temporal.resolve("informe-tecnico-3-sin-firma.pdf");
+        assertTrue(Files.isRegularFile(cotizacion));
+        assertTrue(Files.isRegularFile(orden));
+        assertTrue(Files.isRegularFile(informe));
+        byte[] snapshot = Files.readAllBytes(cotizacion);
+        assertArrayEquals(snapshot, almacen.leerCotizacion(1L));
+
+        datos.cotizacion().setObservaciones("Cambio posterior a la creación");
+        almacen.guardarCotizacion(1L);
+        assertArrayEquals(snapshot, Files.readAllBytes(cotizacion));
+        assertArrayEquals(snapshot, almacen.leerCotizacion(1L));
+
+        Files.delete(cotizacion);
+        byte[] fallback = almacen.leerCotizacion(1L);
+        assertPdf(fallback, "Cambio posterior a la creación");
+        assertFalse(Files.exists(cotizacion));
+
+        datos.informe().setEstado(EstadoInforme.ANULADO);
+        assertThrows(IllegalArgumentException.class, () -> almacen.leerInforme(3L));
+    }
+
+    @Test
     void cotizacionLargaSePaginaSinPerderElFinal() throws Exception {
         CotizacionRepository cotizaciones = mock(CotizacionRepository.class);
         Cotizacion cotizacion = datos().cotizacion();

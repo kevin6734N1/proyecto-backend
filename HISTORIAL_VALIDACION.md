@@ -678,3 +678,109 @@ exit_code=0
 La corrida también registró `SQLState 23505` solo en `CORRELATIVOS_CONTADORES(PREFIJO)` durante la inicialización paralela, seguido de los commits anteriores.
 
 **Resultado de esta entrada:** Corrige instrucciones de reproducción y comparación del script; no cambia el algoritmo de correlativos ni los resultados históricos de E9.
+
+<a id="e11"></a>
+
+## E11 — 2026-09-25 — FreeBuff
+
+<!-- INICIO TEXTO ORIGINAL E11 -->
+# Auditoría de hallazgos nuevos H9–H16 (HALLAZGOS_NUEVOS.md) sobre el código vigente `4c3cbb8`
+
+Reglas de la auditoría: ningún hallazgo se aceptó por lectura del informe; cada uno se verificó por ejecución (HTTP/test con salida cruda) o por lectura directa del código con la línea citada. Se separan hechos (Grupo A) de decisiones de negocio (Grupo B). H1–H3 y lo cerrado en [VALIDACION.md](VALIDACION.md) no se reabrió. El PDF citado por la solicitud no existe; el informe real es `HALLAZGOS_NUEVOS.md` (verificado en disco).
+
+## Grupo A — hechos verificables
+
+| ID | Veredicto | Método | Evidencia |
+|---|---|---|---|
+| H9 | **CONFIRMADO (CRÍTICO)** | Corrida HTTP + test de ramas | Fallo real de disco al guardar el PDF firmado del certificado → `### H9 HTTP 400 {"mensaje":"No se pudo almacenar el PDF firmado."}`; sonda directa: `IllegalStateException: No se pudo almacenar el PDF firmado. [causa: FileAlreadyExistsException]`. Ramas: `IllegalArgumentException` (negocio) → 400 y `IllegalStateException` (bug de servidor) → 400, misma rama `handleRuntime` (`GlobalExceptionHandler.java:30-35`); solo `MethodArgumentNotValidException` y `CorrelativoAgotadoException` (409) tienen ramas propias. |
+| H10 | CONFIRMADO | Lectura con línea | `InformeEstadoSchemaMigration.java:22-23` ejecuta `ALTER TABLE ... ENUM(...)` sin condición en cada arranque; sin Flyway/Liquibase en `pom.xml` (grep: sin coincidencias). No demostrable por corrida: el riesgo es de motor futuro (PostgreSQL/MySQL); probarlo requeriría una base PostgreSQL real. |
+| H11 | CONFIRMADO | Lectura con línea | `application.properties`: L11 `spring.h2.console.enabled=true`, L13 `web-allow-others=true`, L8 `ddl-auto=update`; único properties (sin perfiles dev/prod); `pom.xml:71` `spring-boot-h2console`; sin actuator. Como no hay perfiles, esta configuración ES el perfil de producción si se despliega. |
+| H12 | CONFIRMADO con matiz | Corrida | Tras borrar fila interna `E260903` + contador `E26`: `### H12 nueva creación FALLO: CorrelativoAgotadoException ... [raíz: 23505 ... VALUES ( /* 4 */ 'E260904' )]` — el `COUNT()` recreó el contador desalineado y la creación intentó reasignar `E260904`, VIVA. Efecto real: la ruta queda bloqueada (409) hasta corrección manual; no duplica (protege el unique). Matiz: peor de lo descrito en el informe. |
+| H13 | Hecho confirmado | Lectura (grep) | Grep propio coincide línea por línea con el informe: `EvaluacionAptitudService.java:70,72,109,114` y `RevisionTecnicaService.java:135` mutan estado fuera de `actualizarEstado` sin guard. Sin corrida HTTP propia: el hecho es la ausencia de validador, y su corrección depende de las tablas de transición pendientes de Gesmin. |
+| H15 | Conducta actual CONFIRMADA por corrida; arreglo = decisión de negocio | Corrida | `### H15 PATCH COI COI260901 estado=RECHAZADA con OT viva → estado final=RECHAZADA` + `### H15 invariante resultante: OT 2 sigue PENDIENTE sobre una cotización RECHAZADA` (OT creada tras el guard de APROBADA de `OrdenDeTrabajoService.java:48-52`; sin guard posterior en `CotizacionService.java:90-94`). |
+
+## Grupo B — decisiones de negocio (NO implementadas, Regla de la auditoría)
+
+| ID | Conducta actual (evidencia) | Regla presunta | Decisión que falta de Gesmin |
+|---|---|---|---|
+| H14 | `EstadoOrdenTrabajo.COMPLETADA` solo existe en el enum (`EstadoOrdenTrabajo.java:7`); ningún flujo la asigna; alcanzable solo por PATCH crudo de H4 | OT `COMPLETADA` cuando el Informe llega a `ENVIADO` (candidato de la revisión) | ¿Qué evento marca `COMPLETADA`? Sin respuesta no es implementable (es una regla no construida, no un guard faltante). Impacta el cierre de expediente de H5. |
+| H15 | (ver Grupo A: degradación APROBADA→RECHAZADA con OT viva, corrida E11) | "OT implica cotización aprobada" como invariante | (1) ¿`APROBADA` es terminal? (2) si degrada, ¿las OT vivas se cancelan en cascada o se bloquea la transición? |
+| H16 | `ACEPTADO` solo en `EstadoExpediente.java:7`; sin uso en services/controllers/tests; documentado en `API.md:119,121` y `DB.md:60`; los expedientes nacen `EN_PROCESO` (`ExpedienteService.java:52`) | Semánticamente solapa con `Cotizacion.APROBADA` | ¿Es un paso futuro del flujo (¿qué lo dispara?) o se elimina del enum (actualizando API.md/DB.md)? |
+| H4/H5 (arrastre) | Guards de transición ausentes en `CotizacionService.java:93`, `OrdenDeTrabajoService.java:86`, `CalibracionService.java:70`, `ExpedienteService.java:60` (lectura, líneas citadas) | Máquina de transiciones + guards cruzados de cierre | Tablas de transición y excepciones manuales (rol/motivo), según el diseño en evaluación; sin respuestas no se codifica. |
+
+## Cruce de preguntas a Gesmin (el informe no trae listado explícito; se formulan aquí)
+
+El informe marca ⚠️ en H14, H16 y el diseño H4/H5, pero no trae un listado numerado de preguntas. Las preguntas bien formuladas que trae implícitamente y las que faltan:
+
+- ✅ H14: "¿qué evento de negocio debe marcar la OT como COMPLETADA?" — bien formulada; el candidato (Informe ENVIADO) es coherente con trazabilidad ISO.
+- ✅ H16: "¿ACEPTADO se usa o se elimina?" — bien formulada.
+- ❌ Falta para H15: la pregunta sobre terminalidad de APROBADA y destino de OTs vivas (el informe describe el riesgo pero no la pregunta).
+- ❌ Falta para H12: "¿Gesmin prevé reseeds/limpiezas de datos de prueba en producción?" (define si la corrección del contador es necesaria).
+- ❌ Falta para H4/H5: el listado de tablas de transición con sus ⚠️ (p. ej. ¿el PATCH manual de OT puede forzar EN_ESPERA_CLIENTE/EN_PROCESO?; ¿un expediente con OT CANCELADA puede cerrarse?).
+- ❌ Falta para H9: no requiere pregunta (es bug con fix técnico); solo confirmar el contrato de códigos HTTP (400 vs 404 de H8) en la misma decisión.
+
+## Corridas (reproducción)
+
+```bash
+./mvnw -q -Dtest='AuditoriaHallazgosNuevos4c3cbb8Test,HallazgoH9RamasHandlerTest' -Dsurefire.failIfNoSpecifiedTests=true test
+```
+
+Resultados: `Tests run: 5, Failures: 0, Errors: 0` (3 de `AuditoriaHallazgosNuevos4c3cbb8Test` [H9, H12, H15] + 2 de `HallazgoH9RamasHandlerTest`). Suite completa como regresión: 32 tests, 0 fallos, 0 errores. Nota de sintaxis: entre CLASES el separador válido es `,`; `+` solo sirve entre métodos de la misma clase (en la corrida inicial con `+` surefire no matcheó nada y saltó en silencio con `failIfNoSpecifiedTests=false`).
+
+Artefactos nuevos (tests de auditoría, no cambian código de producción):
+
+- `src/test/java/com/kevin/backend/service/AuditoriaHallazgosNuevos4c3cbb8Test.java` — H9 (fallo real de disco + HTTP), H12 (borrado + recreación del contador), H15 (degradación con OT viva). Base H2 en memoria `gesmine11`; el test H9 respalda y restaura `./data/pdf-firmados` (el directorio de desarrollo) y no deja residuos.
+- `src/test/java/com/kevin/backend/service/HallazgoH9RamasHandlerTest.java` — ramas del handler (negocio vs bug de servidor, ambos → 400).
+
+Límites honestos: H10 y H11 son verificaciones de lectura (el riesgo es de despliegue futuro; demostrar el fallo de H10 requeriría PostgreSQL real); H13 es lectura porque su corrección está bloqueada por decisiones pendientes; H9 se probó con MockMvc (stack real, advice real, excepción real de disco) y no contra un server vivo; el efecto del fix de H9 en códigos HTTP no se implementó. Grupo B NO implementado (no hay norma validada; falta decisión de Gesmin).
+
+<!-- FIN TEXTO ORIGINAL E11 -->
+
+**Resultado de esta entrada:** H9 CONFIRMADO CRÍTICO (corrida); H10/H11 CONFIRMADOS (lectura); H12 CONFIRMADO con matiz (corrida: bloquea, no duplica); H13 hecho confirmado (lectura; corrección bloqueada por decisión); H14/H15/H16 → REQUIERE DECISIÓN DE NEGOCIO (H15 con conducta actual demostrada por corrida). Fichas nuevas agregadas a VALIDACION.md con H9 arriba de la tabla de severidad. Grupo B no implementado.
+
+<a id="e12"></a>
+
+## E12 — 2026-09-25 — Codex
+
+**Texto original de esta entrada (aplicación de decisiones de Gesmin y revisión de E11):** El alcance aprobado está en `CAMBIOS_PARA_CODEX.md`, revisión 2 del 25 set 2026. E11 se conserva íntegra como auditoría del código previo. Esta entrada registra el nuevo comportamiento, las pruebas y los hallazgos que siguen abiertos.
+
+**PDF al crear el registro.** `CotizacionService.crear` y `OrdenDeTrabajoService.crear` llaman a `DocumentoGeneradoService` después de que `CorrelativoRetry.ejecutar` confirma la operación. `RevisionTecnicaService.registrarResultado` devuelve el ID del informe creado por el intento confirmado; solo entonces guarda el PDF sin firma. Una llamada idempotente o una anulación sin nueva emisión no escribe PDF. Los nombres son `cotizacion-{id}.pdf`, `orden-trabajo-{id}.pdf` e `informe-tecnico-{id}-sin-firma.pdf` en `./data/pdf-generados/`. El GET lee el snapshot, o genera al vuelo si falta el archivo. La lectura del informe sigue rechazando `ANULADO` incluso si su archivo persistido existe. La escritura usa temporal y enlace atómico que no reemplaza un snapshot anterior; un fallo se registra y no revierte el documento ya confirmado.
+
+**Estados y alcance de negocio.** `TransicionesEstado` define una tabla por puerta. `BORRADOR → APROBADA` directo sigue permitido y `APROBADA`/`RECHAZADA` son terminales. La OT usa `ORDEN_INTERNA` para las transiciones disparadas por evaluación y `ORDEN_PATCH` para cambios manuales; `COMPLETADA` solo se marca manualmente desde `EN_PROCESO` y es terminal. Calibración conserva `COMPLETADA → EN_PROCESO` para corrección; también se valida `registrarMediciones`, puerta adicional identificada al inventariar `setEstado`. Expediente `CERRADO`/`RECHAZADO` son terminales. No se añadió guard de cierre por OT cancelada porque Gesmin confirmó que el cierre es válido, ni automatismo de notificación o de OT completada. `ACEPTADO` se eliminó del enum del expediente y de API/DB. Antes de retirarlo, la consulta a la base local devolvió:
+
+```text
+$ SELECT ESTADO, COUNT(*) FROM EXPEDIENTES GROUP BY ESTADO;
+ESTADO  | COUNT(*)
+CERRADO | 1
+(1 row)
+```
+
+**Evidencia cruda de las rutas nuevas:**
+
+```text
+$ ./mvnw -q -Dtest=PdfAutoPersistenciaTest test
+### PDF snapshots: COI=cotizacion-1.pdf OT=orden-trabajo-1.pdf IT=informe-tecnico-1-sin-firma.pdf; estados posteriores e idempotencia conservaron bytes; fallback OT=PDF
+exit_code=0
+
+$ ./mvnw -q -Dtest=FlujoEstadosServiceTest test
+### Estados: NO_APTO→EN_ESPERA_CLIENTE; PATCH→PENDIENTE bloqueado; respuesta cliente→PENDIENTE; APTO→EN_PROCESO; COMPLETADA y CERRADO terminales
+exit_code=0
+
+$ ./mvnw -q -Dtest=AuditoriaHallazgosNuevos4c3cbb8Test#h15_cotizacionAprobadaConOtVivaNoPuedeDegradarseARechazada test
+### H15 OT OT260901 estado=PENDIENTE creada sobre COI COI260901 (guard de APROBADA funcionó al crear)
+### H15 PATCH COI COI260901 estado=RECHAZADA con OT viva → bloqueado: No se puede cambiar la cotización aprobada: ya tiene una Orden de Trabajo asociada.
+### H15 invariante: OT 1 sigue PENDIENTE sobre cotización APROBADA
+exit_code=0
+
+$ ./mvnw -q test
+classes=12 tests=38 failures=0 errors=0 skipped=0
+exit_code=0
+```
+
+El test `AuditoriaHallazgosNuevos4c3cbb8Test` de H15, aportado con E11 para demostrar la degradación antigua, se conservó y ahora exige el rechazo y comprueba que la OT siga viva sobre una cotización `APROBADA`. No se borró cobertura; la salida antigua permanece literalmente en E11. `DocumentoPdfServiceTest` agregó snapshot, fallback y rechazo de informe anulado; `TransicionesEstadoTest` verifica las tablas. Los tests de H1/H3 siguen en la suite completa.
+
+**Inventario comparado con VALIDACION.md y E11:** H1 y H3 siguen resueltos según su alcance previo, sin cambio de algoritmo; H2 tiene recertificación trazable y Gesmin confirmó comunicación manual fuera de la API. H4 y H13 quedan resueltos para las puertas conocidas. H5 queda parcial: se impide reabrir `CERRADO`, pero no existe guard cruzado de evaluaciones o informes; el cierre con OT cancelada se permite por decisión explícita. H6, H7 y H8 continúan abiertos como antes. H9 sigue **ABIERTO y CRÍTICO**: `GlobalExceptionHandler` aún convierte `RuntimeException` de servidor en HTTP 400; E11 conserva su sonda. H10/H11 siguen abiertos como deuda de migración y configuración. H12 sigue abierto con su colisión demostrada tras borrar contador y fila interna; no se tocó el algoritmo. H14 se supera como requisito automático: `COMPLETADA` de OT será manual. H15 queda resuelto por estado terminal y guard específico. H16 queda resuelto al quitar `ACEPTADO` tras comprobar la base local. La tabla y fichas vigentes están en `VALIDACION.md`.
+
+**Límites:** la prueba de PDFs comprueba creación real tras commit, lectura de bytes, inmutabilidad y fallback por archivo ausente; no forzó un fallo de permisos de disco después del commit. La suite usa H2 local/en memoria; no demuestra comportamiento multi-nodo ni despliegue con otro motor. No se ejecutó una corrida HTTP externa de las nuevas tablas de estado; `FlujoEstadosServiceTest` usa los servicios reales, y los códigos HTTP previstos provienen del handler vigente de `IllegalArgumentException`. H9, H10, H11 y H12 permanecen explícitamente fuera de este cambio.
+
+**Resultado de esta entrada:** aplica las decisiones de `CAMBIOS_PARA_CODEX.md` y registra los límites vigentes, sin reescribir E11.

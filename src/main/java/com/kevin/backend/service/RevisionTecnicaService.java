@@ -25,17 +25,20 @@ public class RevisionTecnicaService {
     private final InformeTecnicoRepository informeRepository;
     private final InformeTecnicoService informeTecnicoService;
     private final CorrelativoRetry correlativos;
+    private final DocumentoGeneradoService pdfGenerados;
 
     public RevisionTecnicaService(RevisionTecnicaRepository revisionRepository,
                                   CalibracionRepository calibracionRepository,
                                   InformeTecnicoRepository informeRepository,
                                   InformeTecnicoService informeTecnicoService,
-                                  CorrelativoRetry correlativos) {
+                                  CorrelativoRetry correlativos,
+                                  DocumentoGeneradoService pdfGenerados) {
         this.revisionRepository = revisionRepository;
         this.calibracionRepository = calibracionRepository;
         this.informeRepository = informeRepository;
         this.informeTecnicoService = informeTecnicoService;
         this.correlativos = correlativos;
+        this.pdfGenerados = pdfGenerados;
     }
 
     public List<RevisionTecnicaDTO> listarPorCalibracion(Long calibracionId) {
@@ -77,10 +80,18 @@ public class RevisionTecnicaService {
      * Si colisiona el correlativo IT, todo se revierte antes del siguiente intento.
      */
     public RevisionTecnicaDTO registrarResultado(Long id, ResultadoRevision resultado, String observaciones) {
-        return correlativos.ejecutar(() -> registrarResultadoUnaVez(id, resultado, observaciones));
+        ResultadoRegistro registro = correlativos.ejecutar(
+                () -> registrarResultadoUnaVez(id, resultado, observaciones));
+        // El ID proviene del intento confirmado; una llamada idempotente no tiene informe nuevo.
+        if (registro.informeNuevoId() != null) {
+            pdfGenerados.guardarInforme(registro.informeNuevoId());
+        }
+        return registro.revision();
     }
 
-    private RevisionTecnicaDTO registrarResultadoUnaVez(Long id, ResultadoRevision resultado, String observaciones) {
+    private record ResultadoRegistro(RevisionTecnicaDTO revision, Long informeNuevoId) {}
+
+    private ResultadoRegistro registrarResultadoUnaVez(Long id, ResultadoRevision resultado, String observaciones) {
         Long calibracionId = revisionRepository.findCalibracionIdById(id)
                 .orElseThrow(() -> new RuntimeException("Revisión técnica no encontrada con id " + id));
         Calibracion calibracion = calibracionRepository.findByIdForUpdate(calibracionId)
@@ -94,7 +105,7 @@ public class RevisionTecnicaService {
         String observacionFinal = observaciones != null ? observaciones : revision.getObservaciones();
         boolean mismoResultado = revision.getResultado() == resultado;
         if (mismoResultado && Objects.equals(revision.getObservaciones(), observacionFinal)) {
-            return toDTO(revision);
+            return new ResultadoRegistro(toDTO(revision), null);
         }
 
         // Otra revisión pendiente no puede invalidar un certificado emitido por un revisor distinto.
@@ -131,13 +142,16 @@ public class RevisionTecnicaService {
         if (observaciones != null) revision.setObservaciones(observaciones);
         revisionRepository.saveAndFlush(revision);
 
+        Long informeNuevoId = null;
         if (resultado == ResultadoRevision.NO_CONFORME) {
+            TransicionesEstado.validarTransicion(calibracion.getEstado(), EstadoCalibracion.EN_PROCESO,
+                    TransicionesEstado.CALIBRACION);
             calibracion.setEstado(EstadoCalibracion.EN_PROCESO);
             calibracionRepository.save(calibracion);
         } else if (resultado == ResultadoRevision.CONFORME) {
-            informeTecnicoService.generarDesdeRevision(revision);
+            informeNuevoId = informeTecnicoService.generarDesdeRevision(revision).getId();
         }
-        return toDTO(revision);
+        return new ResultadoRegistro(toDTO(revision), informeNuevoId);
     }
 
     private RevisionTecnica buscarEntidadPorId(Long id) {

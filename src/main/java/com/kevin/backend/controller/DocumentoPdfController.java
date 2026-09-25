@@ -1,7 +1,7 @@
 package com.kevin.backend.controller;
 
 import com.kevin.backend.dto.InformeTecnicoDTO;
-import com.kevin.backend.service.DocumentoPdfService;
+import com.kevin.backend.service.DocumentoGeneradoService;
 import com.kevin.backend.service.InformeFirmadoService;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -14,27 +14,27 @@ import java.nio.charset.StandardCharsets;
 
 @RestController
 public class DocumentoPdfController {
-    private final DocumentoPdfService documentos;
+    private final DocumentoGeneradoService documentos;
     private final InformeFirmadoService firmados;
 
-    public DocumentoPdfController(DocumentoPdfService documentos, InformeFirmadoService firmados) {
+    public DocumentoPdfController(DocumentoGeneradoService documentos, InformeFirmadoService firmados) {
         this.documentos = documentos;
         this.firmados = firmados;
     }
 
     @GetMapping(value = "/api/cotizaciones/{id}/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
     public ResponseEntity<byte[]> cotizacion(@PathVariable Long id) {
-        return pdf("cotizacion-" + id + ".pdf", documentos.cotizacion(id));
+        return pdf("cotizacion-" + id + ".pdf", documentos.leerCotizacion(id));
     }
 
     @GetMapping(value = "/api/ordenes-trabajo/{id}/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
     public ResponseEntity<byte[]> orden(@PathVariable Long id) {
-        return pdf("orden-trabajo-" + id + ".pdf", documentos.orden(id));
+        return pdf("orden-trabajo-" + id + ".pdf", documentos.leerOrden(id));
     }
 
     @GetMapping(value = "/api/informes-tecnicos/{id}/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
     public ResponseEntity<byte[]> informe(@PathVariable Long id) {
-        return pdf("informe-tecnico-" + id + "-sin-firma.pdf", documentos.informe(id));
+        return pdf("informe-tecnico-" + id + "-sin-firma.pdf", documentos.leerInforme(id));
     }
 
     @PostMapping(value = "/api/informes-tecnicos/{id}/pdf-firmado",

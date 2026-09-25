@@ -57,6 +57,8 @@ public class ExpedienteService {
     public ExpedienteDTO cambiarEstado(Long id, EstadoExpediente nuevoEstado) {
         Expediente exp = expedienteRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Expediente no encontrado con id " + id));
+        if (exp.getEstado() == nuevoEstado) return toDTO(exp);
+        TransicionesEstado.validarTransicion(exp.getEstado(), nuevoEstado, TransicionesEstado.EXPEDIENTE);
         exp.setEstado(nuevoEstado);
         return toDTO(expedienteRepository.save(exp));
     }
