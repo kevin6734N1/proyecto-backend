@@ -3,7 +3,6 @@ package com.kevin.backend.service;
 import com.kevin.backend.dto.ClienteDTO;
 import com.kevin.backend.dto.ContactoDTO;
 import com.kevin.backend.model.Cliente;
-import com.kevin.backend.model.Contacto;
 import com.kevin.backend.repository.ClienteRepository;
 import org.springframework.stereotype.Service;
 
@@ -26,13 +25,13 @@ public class ClienteService {
 
     public ClienteDTO obtenerPorId(Long id) {
         Cliente cliente = clienteRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Cliente no encontrado con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Cliente no encontrado con id " + id));
         return toDTO(cliente);
     }
 
     public ClienteDTO crear(ClienteDTO dto) {
         if (clienteRepository.existsByRuc(dto.ruc())) {
-            throw new RuntimeException("Ya existe un cliente con RUC " + dto.ruc());
+            throw new IllegalArgumentException("Ya existe un cliente con RUC " + dto.ruc());
         }
         Cliente cliente = new Cliente();
         cliente.setRazonSocial(dto.razonSocial());
@@ -44,7 +43,7 @@ public class ClienteService {
 
     public ClienteDTO actualizar(Long id, ClienteDTO dto) {
         Cliente cliente = clienteRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Cliente no encontrado con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Cliente no encontrado con id " + id));
         cliente.setRazonSocial(dto.razonSocial());
         cliente.setDireccion(dto.direccion());
         cliente.setRubro(dto.rubro());

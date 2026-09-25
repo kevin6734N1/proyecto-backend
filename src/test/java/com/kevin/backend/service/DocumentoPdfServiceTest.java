@@ -1,6 +1,5 @@
 package com.kevin.backend.service;
 
-import com.kevin.backend.dto.InformeTecnicoDTO;
 import com.kevin.backend.model.*;
 import com.kevin.backend.repository.CotizacionRepository;
 import com.kevin.backend.repository.InformeTecnicoRepository;
@@ -119,7 +118,6 @@ class DocumentoPdfServiceTest {
     @Test
     void firmadoRequierePdfRealYSeDescargaSoloTrasAprobacion() {
         InformeTecnicoRepository informes = mock(InformeTecnicoRepository.class);
-        InformeTecnicoService servicioInformes = mock(InformeTecnicoService.class);
         InformeTecnico informe = datos().informe();
         when(informes.findById(3L)).thenReturn(Optional.of(informe));
 

@@ -22,7 +22,7 @@ public class ModeloService {
 
     public ModeloDTO crear(ModeloDTO dto) {
         if (modeloRepository.existsByNombreIgnoreCase(dto.nombre())) {
-            throw new RuntimeException("Ya existe un modelo con el nombre " + dto.nombre());
+            throw new IllegalArgumentException("Ya existe un modelo con el nombre " + dto.nombre());
         }
         Modelo modelo = new Modelo();
         modelo.setNombre(dto.nombre());
@@ -31,7 +31,7 @@ public class ModeloService {
 
     public void eliminar(Long id) {
         Modelo modelo = modeloRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Modelo no encontrado con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Modelo no encontrado con id " + id));
         modeloRepository.delete(modelo);
     }
 

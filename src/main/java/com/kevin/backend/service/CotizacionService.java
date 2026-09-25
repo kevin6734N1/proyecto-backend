@@ -64,7 +64,7 @@ public class CotizacionService {
 
     private CotizacionDTO crearUnaVez(CotizacionDTO dto) {
         Cliente cliente = clienteRepository.findById(dto.clienteId())
-                .orElseThrow(() -> new RuntimeException("Cliente no encontrado con id " + dto.clienteId()));
+                .orElseThrow(() -> new IllegalArgumentException("Cliente no encontrado con id " + dto.clienteId()));
 
         Cotizacion cotizacion = new Cotizacion();
         cotizacion.setCliente(cliente);
@@ -75,11 +75,11 @@ public class CotizacionService {
 
         if (dto.contactoId() != null) {
             cotizacion.setContacto(contactoRepository.findById(dto.contactoId())
-                    .orElseThrow(() -> new RuntimeException("Contacto no encontrado con id " + dto.contactoId())));
+                    .orElseThrow(() -> new IllegalArgumentException("Contacto no encontrado con id " + dto.contactoId())));
         }
         if (dto.expedienteId() != null) {
             cotizacion.setExpediente(expedienteRepository.findById(dto.expedienteId())
-                    .orElseThrow(() -> new RuntimeException("Expediente no encontrado con id " + dto.expedienteId())));
+                    .orElseThrow(() -> new IllegalArgumentException("Expediente no encontrado con id " + dto.expedienteId())));
         }
 
         cotizacion.setCodigo(generarCodigo());
@@ -131,14 +131,14 @@ public class CotizacionService {
         BigDecimal precioLista;
         if (tieneProducto) {
             Producto producto = productoRepository.findById(dto.productoId())
-                    .orElseThrow(() -> new RuntimeException("Producto no encontrado con id " + dto.productoId()));
+                    .orElseThrow(() -> new IllegalArgumentException("Producto no encontrado con id " + dto.productoId()));
             detalle.setProducto(producto);
             detalle.setCodigoSnapshot(producto.getCodigo());
             detalle.setNombreSnapshot(producto.getNombre());
             precioLista = producto.getPrecio();
         } else {
             Servicio servicio = servicioRepository.findById(dto.servicioId())
-                    .orElseThrow(() -> new RuntimeException("Servicio no encontrado con id " + dto.servicioId()));
+                    .orElseThrow(() -> new IllegalArgumentException("Servicio no encontrado con id " + dto.servicioId()));
             detalle.setServicio(servicio);
             detalle.setCodigoSnapshot(servicio.getCodigo());
             detalle.setNombreSnapshot(servicio.getNombre());
@@ -175,7 +175,7 @@ public class CotizacionService {
 
     private Cotizacion buscarEntidadPorId(Long id) {
         return cotizacionRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Cotización no encontrada con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Cotización no encontrada con id " + id));
     }
 
     private CotizacionDTO toDTO(Cotizacion c) {

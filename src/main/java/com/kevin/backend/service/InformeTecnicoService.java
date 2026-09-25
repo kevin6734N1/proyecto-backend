@@ -96,7 +96,7 @@ public class InformeTecnicoService {
 
     private InformeTecnico buscarEntidadPorId(Long id) {
         return informeTecnicoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Informe Técnico no encontrado con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Informe Técnico no encontrado con id " + id));
     }
 
     private InformeTecnicoDTO toDTO(InformeTecnico i) {

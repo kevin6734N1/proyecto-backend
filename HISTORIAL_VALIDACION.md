@@ -935,3 +935,54 @@ exit_code=0
 **Límites:** H9 incluye una ruta de fallo real de almacenamiento con MockMvc y pruebas aisladas de ramas; no se repitió el sabotaje con un servidor externo como en E14. H17 se verificó en dos rutas del servidor embebido con la configuración por defecto. No se tocaron H1/H3, H5/H6/H8, estados, correlativos, lógica de guardado de PDF, perfiles ni Flyway. La documentación de E14 y de entradas anteriores se conserva íntegra antes de esta entrada.
 
 **Resultado de esta entrada:** H9 y H17 pasan a RESUELTOS en el alcance probado; el comportamiento del fallback queda explícito en API.md y DB.md. E14 se conserva como evidencia histórica del fallo previo.
+
+
+<a id="e16"></a>
+
+## E16 — 2026-09-25 — Codex (por indicación de Kevin)
+
+**Texto original de esta entrada (cierre de día):** Kevin confirmó las decisiones de producto de H5 y H6; Kevin y Nicolás confirmaron el contrato H8. H5 se cierra sin guards cruzados de cierre de expediente: se permite cerrar con OT `CANCELADA`, OTs vivas o sin informe enviado. `CERRADO` sigue terminal. El control de pendientes corresponde a la operación, porque cancelaciones a mitad de revisión y devoluciones de instrumentos exigen flexibilidad. H6 se cierra permitiendo varias revisiones `PENDIENTE` sobre una calibración `COMPLETADA` antes de certificar, para varios revisores; el guard de informe activo de E12 sigue bloqueando revisiones nuevas tras un certificado vigente. Las pendientes sin usar no emiten certificados duplicados por sí mismas. H8 se cierra con HTTP 400 y `{"mensaje":"..."}` para IDs inexistentes; no se cambia a 404.
+
+**Discrepancia detectada antes de cerrar H8:** el commit `73974ed` de E15 corrigió H9 enviando `RuntimeException` genéricas a 500, pero 46 construcciones explícitas en servicios seguían representando errores de negocio ("no encontrado" / "ya existe") como `RuntimeException`. La sonda temporal con servidor embebido y H2 en memoria midió:
+
+```text
+$ ./mvnw -q -Dtest=H8DecisionProbeTest test
+### E16 GET /api/clientes/999999999 -> HTTP 500 {"mensaje":"Error interno del servidor."}
+exit_code=0
+```
+
+Kevin autorizó en esta misma sesión ampliar el alcance para corregir H8 sin tocar `GlobalExceptionHandler`. Se cambiaron **solo las construcciones explícitas de errores de negocio** de `new RuntimeException(...)` a `new IllegalArgumentException(...)` en los servicios. No se alteraron las condiciones, mensajes, estados, correlativos, PDF ni excepciones de infraestructura (`IllegalStateException`). La sonda temporal se retiró y fue sustituida por `HallazgoH8ContratoHttpTest` permanente.
+
+**Evidencia cruda posterior (servidor embebido, puerto aleatorio, H2 en memoria; aserción exacta de HTTP y body):**
+
+```text
+$ ./mvnw -q -Dtest='HallazgoH8ContratoHttpTest,HallazgoH9RamasHandlerTest' test
+### E16 GET /api/cotizaciones/999999999 -> HTTP 400 {"mensaje":"Cotización no encontrada con id 999999999"}
+### E16 GET /api/clientes/999999999 -> HTTP 400 {"mensaje":"Cliente no encontrado con id 999999999"}
+### E16 GET /api/calibraciones/999999999 -> HTTP 400 {"mensaje":"Calibración no encontrada con id 999999999"}
+### E16 GET /api/informes-tecnicos/999999999 -> HTTP 400 {"mensaje":"Informe Técnico no encontrado con id 999999999"}
+### E16 GET /api/ordenes-trabajo/999999999 -> HTTP 400 {"mensaje":"Orden de Trabajo no encontrada con id 999999999"}
+### E16 POST /api/clientes {"razonSocial":"Cliente E16","ruc":"20999999991"} -> HTTP 200 {"id":1,"razonSocial":"Cliente E16","ruc":"20999999991","direccion":null,"rubro":null,"contactos":[]}
+### E16 POST /api/clientes duplicado {"razonSocial":"Cliente E16","ruc":"20999999991"} -> HTTP 400 {"mensaje":"Ya existe un cliente con RUC 20999999991"}
+### H9b Bean Validation POST /api/marcas → HTTP 400 {"nombre":"El nombre de la marca es obligatorio"}
+### H9b excepción de NEGOCIO (IllegalArgumentException) → HTTP 400 {"mensaje":"Cliente no encontrado con id 99999"}
+### H9b fallo de SERVIDOR (IllegalStateException + IOException de disco) → HTTP 500 {"mensaje":"Error interno del servidor."}
+exit_code=0
+```
+
+**Limpieza de símbolos sin uso:** `ClienteService.java`: import `Contacto`; `AuditoriaH3Cruzada4c3cbb8Test.java`: campos `revisiones` y `correlativos` (sin referencias); `AuditoriaHallazgosNuevos4c3cbb8Test.java`: imports `InformeTecnico` y `StandardCharsets`; `DocumentoPdfServiceTest.java`: import `InformeTecnicoDTO` y variable `servicioInformes`. La sugerencia de subir `@RequestMapping("/api")` en `DocumentoPdfController` no se aplicó: los mappings ya funcionan y no se necesitó tocar URLs para esta limpieza.
+
+**Regresión completa:**
+
+```text
+$ ./mvnw test
+### H9 HTTP POST /api/informes-tecnicos/1/pdf-firmado (fallo real de disco)
+### H9 HTTP 500 {"mensaje":"Error interno del servidor."}
+Tests run: 43, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+exit_code=0
+```
+
+**Límites:** En un primer intento de sonda, los argumentos del lanzador no se aplicaron y la aplicación arrancó brevemente con la configuración por defecto (`./data/gesmin`); se detuvo antes de enviar requests. Esa apertura pudo ejecutar el `ddl-auto=update` y la migración idempotente del arranque; no se midió un estado previo de ese archivo. La sonda H8 registrada arriba y el test permanente sí usaron H2 en memoria. H5/H6 son decisiones de producto, no nuevos guards; la evidencia HTTP de E14 y los tests vigentes respaldan el comportamiento observado. H8 se comprobó por HTTP real embebido en cinco GET y una regla de duplicidad; no es una enumeración de cada endpoint. `API.md` mantiene en su tabla histórica D/E texto de "PARCIAL" y la sugerencia de deshabilitar nueva revisión si ya hay una `PENDIENTE`; no se editó porque el alcance documental solicitado para E16 se limitó a `VALIDACION.md` y este historial. E14 y E15 quedaron intactas.
+
+**Resultado de esta entrada:** H5 y H6 quedan RESUELTOS por decisión de producto; H8 queda RESUELTO por decisión y corrección del contrato HTTP tras la regresión de E15. La limpieza indicada no cambió reglas de negocio.

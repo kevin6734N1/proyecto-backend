@@ -33,7 +33,7 @@ public class ExpedienteService {
 
     public ExpedienteDTO obtenerPorId(Long id) {
         Expediente exp = expedienteRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Expediente no encontrado con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Expediente no encontrado con id " + id));
         return toDTO(exp);
     }
 
@@ -43,7 +43,7 @@ public class ExpedienteService {
 
     private ExpedienteDTO crearUnaVez(Long clienteId) {
         Cliente cliente = clienteRepository.findById(clienteId)
-                .orElseThrow(() -> new RuntimeException("Cliente no encontrado con id " + clienteId));
+                .orElseThrow(() -> new IllegalArgumentException("Cliente no encontrado con id " + clienteId));
 
         Expediente expediente = new Expediente();
         expediente.setNumero(generarNumero());
@@ -56,7 +56,7 @@ public class ExpedienteService {
 
     public ExpedienteDTO cambiarEstado(Long id, EstadoExpediente nuevoEstado) {
         Expediente exp = expedienteRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Expediente no encontrado con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Expediente no encontrado con id " + id));
         if (exp.getEstado() == nuevoEstado) return toDTO(exp);
         TransicionesEstado.validarTransicion(exp.getEstado(), nuevoEstado, TransicionesEstado.EXPEDIENTE);
         exp.setEstado(nuevoEstado);

@@ -48,7 +48,7 @@ public class OrdenDeTrabajoService {
 
     private OrdenDeTrabajoDTO crearUnaVez(OrdenDeTrabajoDTO dto) {
         Cotizacion cotizacion = cotizacionRepository.findById(dto.cotizacionId())
-                .orElseThrow(() -> new RuntimeException("Cotización no encontrada con id " + dto.cotizacionId()));
+                .orElseThrow(() -> new IllegalArgumentException("Cotización no encontrada con id " + dto.cotizacionId()));
 
         if (cotizacion.getEstado() != EstadoCotizacion.APROBADA) {
             throw new IllegalArgumentException(
@@ -101,7 +101,7 @@ public class OrdenDeTrabajoService {
 
     private OrdenDeTrabajo buscarEntidadPorId(Long id) {
         return ordenDeTrabajoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Orden de Trabajo no encontrada con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Orden de Trabajo no encontrada con id " + id));
     }
 
     private OrdenDeTrabajoDTO toDTO(OrdenDeTrabajo o) {

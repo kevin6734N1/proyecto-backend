@@ -46,7 +46,7 @@ public class ProductoService {
 
     public ProductoDTO crear(ProductoDTO dto) {
         if (productoRepository.existsByCodigo(dto.codigo())) {
-            throw new RuntimeException("Ya existe un producto con el código " + dto.codigo());
+            throw new IllegalArgumentException("Ya existe un producto con el código " + dto.codigo());
         }
         Producto producto = new Producto();
         aplicarDatos(producto, dto);
@@ -57,7 +57,7 @@ public class ProductoService {
         Producto producto = buscarEntidadPorId(id);
 
         if (!producto.getCodigo().equals(dto.codigo()) && productoRepository.existsByCodigo(dto.codigo())) {
-            throw new RuntimeException("Ya existe un producto con el código " + dto.codigo());
+            throw new IllegalArgumentException("Ya existe un producto con el código " + dto.codigo());
         }
 
         aplicarDatos(producto, dto);
@@ -76,9 +76,9 @@ public class ProductoService {
 
     private void aplicarDatos(Producto producto, ProductoDTO dto) {
         Marca marca = marcaRepository.findById(dto.marcaId())
-                .orElseThrow(() -> new RuntimeException("Marca no encontrada con id " + dto.marcaId()));
+                .orElseThrow(() -> new IllegalArgumentException("Marca no encontrada con id " + dto.marcaId()));
         Modelo modelo = modeloRepository.findById(dto.modeloId())
-                .orElseThrow(() -> new RuntimeException("Modelo no encontrado con id " + dto.modeloId()));
+                .orElseThrow(() -> new IllegalArgumentException("Modelo no encontrado con id " + dto.modeloId()));
 
         producto.setCodigo(dto.codigo());
         producto.setNombre(dto.nombre());
@@ -90,7 +90,7 @@ public class ProductoService {
 
     private Producto buscarEntidadPorId(Long id) {
         return productoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Producto no encontrado con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Producto no encontrado con id " + id));
     }
 
     private ProductoDTO toDTO(Producto p) {

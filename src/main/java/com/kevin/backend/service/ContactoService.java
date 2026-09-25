@@ -20,7 +20,7 @@ public class ContactoService {
 
     public ContactoDTO agregar(Long clienteId, ContactoDTO dto) {
         Cliente cliente = clienteRepository.findById(clienteId)
-                .orElseThrow(() -> new RuntimeException("Cliente no encontrado con id " + clienteId));
+                .orElseThrow(() -> new IllegalArgumentException("Cliente no encontrado con id " + clienteId));
 
         Contacto contacto = new Contacto();
         contacto.setNombre(dto.nombre());
@@ -34,7 +34,7 @@ public class ContactoService {
 
     public ContactoDTO actualizar(Long contactoId, ContactoDTO dto) {
         Contacto contacto = contactoRepository.findById(contactoId)
-                .orElseThrow(() -> new RuntimeException("Contacto no encontrado con id " + contactoId));
+                .orElseThrow(() -> new IllegalArgumentException("Contacto no encontrado con id " + contactoId));
         contacto.setNombre(dto.nombre());
         contacto.setEmail(dto.email());
         contacto.setTelefono(dto.telefono());

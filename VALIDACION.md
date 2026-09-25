@@ -1,6 +1,6 @@
 # Gesmin Backend — Validación vigente
 
-**Código evaluado:** base `1183d19`, decisiones del 2026-09-25 aplicadas en E12 y corrección de PDF residual en E13; H1/H3 conservan la evidencia previa. E14 (FreeBuff, 2026-09-25) re-verificó E12/E13 sobre `4385bca` (cb5a844 + 4385bca) con corrida HTTP end-to-end; E15 (Codex, 2026-09-25) corrige H9/H17 sobre esa base y ejecuta la suite completa. Los resultados vigentes están en las fichas de abajo y en [E14](HISTORIAL_VALIDACION.md#e14) / [E15](HISTORIAL_VALIDACION.md#e15). Cada hallazgo tiene una ficha única. `RESUELTO` indica que la conducta señalada se verificó en el alcance descrito; `ABIERTO` indica una regla aún sin defender, una decisión pendiente o evidencia contradictoria sin comparación controlada. Los textos previos y sus veredictos se conservan literalmente en [HISTORIAL_VALIDACION.md](HISTORIAL_VALIDACION.md).
+**Código evaluado:** base `1183d19`, decisiones del 2026-09-25 aplicadas en E12 y corrección de PDF residual en E13; H1/H3 conservan la evidencia previa. E14 (FreeBuff, 2026-09-25) re-verificó E12/E13 sobre `4385bca` (cb5a844 + 4385bca) con corrida HTTP end-to-end; E15 (Codex, 2026-09-25) corrige H9/H17 sobre esa base; E16 documenta las decisiones de H5/H6/H8 y restaura el contrato 400 de H8 después de la regresión introducida en E15. Los resultados vigentes están en las fichas de abajo y en [E14](HISTORIAL_VALIDACION.md#e14) / [E15](HISTORIAL_VALIDACION.md#e15) / [E16](HISTORIAL_VALIDACION.md#e16). Cada hallazgo tiene una ficha única. `RESUELTO` indica que la conducta señalada se verificó en el alcance descrito; `ABIERTO` indica una regla aún sin defender, una decisión pendiente o evidencia contradictoria sin comparación controlada. Los textos previos y sus veredictos se conservan literalmente en [HISTORIAL_VALIDACION.md](HISTORIAL_VALIDACION.md).
 
 **PDF generado:** E12 verifica snapshots automáticos de cotización, OT e informe tras confirmar cada registro, con fallback para archivos ausentes. E13 verifica que un archivo residual no se sirve si la cotización u OT ya no existe. La reutilización de IDs tras reiniciar solo la BD exige coordinar también `data/pdf-generados/` (véase DB.md). **E14 re-verificó ambas features por HTTP real**: los tres archivos existen en disco tras crear los registros, el GET sirve el snapshot sin regenerarlo, el fallback regenera al vuelo y los GET de registros inexistentes no sirven PDF residual (véase [Feature E12/E13](#feature-pdf)).
 
@@ -17,6 +17,14 @@
 | 7 | [H12](#h12) | 🟡 MEDIA-BAJA — contador sin resincronización | ABIERTO; corrida E11: bloquea, no duplica (código idéntico en E14) |
 | 8 | [H11](#h11) | 🟡 BAJA (dev) / ALTA (prod) — consola H2 + ddl-auto | ABIERTO; confirmado por lectura (re-verificado E14) |
 | 9 | [H16](#h16) | ⚪ BAJA-MEDIA — enum zombie | RESUELTO en E12; reconfirmado por HTTP en E14 |
+
+**Cierres de decisión E16 (Kevin, 2026-09-25):**
+
+| Hallazgo | Estado vigente | Regla aprobada |
+|---|---|---|
+| [H5](#h5) | RESUELTO por decisión de producto | Cierre operativo sin guard de OT, evaluación o informe; `CERRADO` no se reabre. |
+| [H6](#h6) | RESUELTO por decisión de producto | Varias revisiones `PENDIENTE` permitidas antes de certificar; informe vigente bloquea nuevas revisiones. |
+| [H8](#h8) | RESUELTO por decisión de producto y fix E16 | ID inexistente conserva HTTP 400 con `mensaje`; bugs reales conservan 500. |
 
 <a id="feature-pdf"></a>
 
@@ -170,9 +178,9 @@ Nota: surefire no acepta `,` para separar dos métodos de la misma clase (`#m1,m
 
 <a id="h5"></a>
 
-## H5 — PARCIAL: reapertura cerrada; cierre sin guards cruzados por decisión de Gesmin
+## H5 — RESUELTO por decisión de producto: cierre operativo sin guards cruzados
 
-**Regla vigente:** `CERRADO` y `RECHAZADO` son terminales; `CERRADO → EN_PROCESO` ya responde 400. Gesmin confirmó que un expediente puede cerrarse con una OT `CANCELADA`, por lo que no se añadió ese guard. El cierre tampoco valida automáticamente evaluaciones o informes. El posible control adicional de esos componentes permanece **ABIERTO** sin regla aprobada; no se declara un cierre global del hallazgo.
+**Regla vigente y decisión (Kevin, 2026-09-25):** `CERRADO` y `RECHAZADO` son terminales; `CERRADO → EN_PROCESO` responde 400. El cierre **no valida** el estado de las OT, evaluaciones ni informes asociados: se permite cerrar con OT `CANCELADA`, OTs vivas o sin informe enviado. La responsabilidad de no cerrar con trabajo pendiente es operativa. Casos reales, como cancelación a mitad de revisión o devolución del instrumento, requieren flexibilidad; Gesmin no pidió guards cruzados. Esta decisión cierra el hallazgo como requisito de producto, sin añadir comportamiento nuevo.
 
 **Evidencia actual:** la tabla `TransicionesEstado.EXPEDIENTE` (líneas 38-42) rechaza salir de `CERRADO` y `TransicionesEstadoTest` lo comprueba; `ExpedienteService.cambiarEstado` (línea 61) es la única validación: no existen guards cruzados con OT, evaluaciones ni informes. La evidencia HTTP previa de E1, que reabría el expediente, está **SUPERADA por E12**.
 
@@ -183,15 +191,15 @@ Nota: surefire no acepta `,` para separar dos métodos de la misma clase (`#m1,m
 [400] PATCH CERRADO->EN_PROCESO {"mensaje":"Transición de estado no permitida: CERRADO -> EN_PROCESO."}
 ```
 
-El cierre con OTs vivas y `PENDIENTE` se ejecutó sin error: confirma que no hay validación cruzada, consistente con la decisión de Gesmin (solo se descartó el guard de OT CANCELADA; el resto de controles sigue sin regla aprobada). No se probó una validación cruzada de cierre porque no se implementó.
+El cierre con OTs vivas y `PENDIENTE` se ejecutó sin error: confirma que no hay validación cruzada. La posibilidad de añadir guards para los otros componentes quedó **SUPERADA por la decisión E16**; la evidencia técnica anterior se conserva arriba. No se probó un guard cruzado porque no se implementó.
 
-**Última verificación:** FreeBuff, 2026-09-25, E14. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12) → [E14](HISTORIAL_VALIDACION.md#e14).
+**Última verificación técnica:** FreeBuff, 2026-09-25, E14 (HTTP); decisión confirmada por Kevin, 2026-09-25, E16. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E11](HISTORIAL_VALIDACION.md#e11) → [E12](HISTORIAL_VALIDACION.md#e12) → [E14](HISTORIAL_VALIDACION.md#e14) → [E16](HISTORIAL_VALIDACION.md#e16).
 
 <a id="h6"></a>
 
-## H6 — ABIERTO
+## H6 — RESUELTO por decisión de producto: revisiones PENDIENTE paralelas permitidas
 
-**Regla vigente:** se permiten varias revisiones `PENDIENTE` sobre una calibración `COMPLETADA`; algunas pueden quedar sin uso. El guard del informe vigente de H2 no impide crear esas pendientes antes de certificar.
+**Regla vigente y decisión (Kevin, 2026-09-25):** se permiten varias revisiones `PENDIENTE` sobre una calibración `COMPLETADA` antes de certificar; varios revisores pueden trabajar sobre ella. Algunas pendientes pueden quedar sin uso. El guard de informe activo introducido en E12 impide crear nuevas revisiones cuando ya existe un certificado vigente. Las pendientes sin usar no corrompen datos ni emiten certificados duplicados por sí mismas.
 
 **Evidencia cruda:** `validation/requests.log` caso 2:
 
@@ -209,9 +217,9 @@ En el test vigente `h1Yh2ImpidenRepetirRevisionYEmitirSegundoInforme` se crean d
 [201] POST /api/revisiones-tecnicas {"id":76,"calibracionId":35,...,"resultado":"PENDIENTE"}
 ```
 
-Matiz nuevo verificado: cuando la calibración YA tiene un informe activo, el guard introducido en E12 (`RevisionTecnicaService.java:66-70`, "esta calibración ya tiene un informe técnico") rechaza revisiones nuevas con 400. El hallazgo sigue abierto en su forma original (pendientes sin usar antes de certificar).
+Matiz verificado: cuando la calibración YA tiene un informe activo, el guard introducido en E12 (`RevisionTecnicaService.java:66-70`, "esta calibración ya tiene un informe técnico") rechaza revisiones nuevas con 400. Las pendientes sin usar antes de certificar son un comportamiento **aprobado en E16**, no un hallazgo abierto.
 
-**Última verificación:** FreeBuff, 2026-09-25, E14 (HTTP). **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E3](HISTORIAL_VALIDACION.md#e3) → [E14](HISTORIAL_VALIDACION.md#e14).
+**Última verificación técnica:** FreeBuff, 2026-09-25, E14 (HTTP); decisión confirmada por Kevin, 2026-09-25, E16. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E3](HISTORIAL_VALIDACION.md#e3) → [E14](HISTORIAL_VALIDACION.md#e14) → [E16](HISTORIAL_VALIDACION.md#e16).
 
 <a id="h7"></a>
 
@@ -223,9 +231,9 @@ Matiz nuevo verificado: cuando la calibración YA tiene un informe activo, el gu
 
 <a id="h8"></a>
 
-## H8 — ABIERTO: decisión de contrato HTTP
+## H8 — RESUELTO por decisión de producto y fix E16: "no encontrado" conserva HTTP 400
 
-**Regla vigente:** un `GET /{id}` inexistente devuelve 400 mediante `GlobalExceptionHandler.handleRuntime`; no hay decisión registrada para cambiarlo a 404. El 409 de agotamiento de correlativo tiene handler separado y no modifica esta regla.
+**Regla vigente y decisión (Kevin + Nicolás, 2026-09-25):** un `GET /{id}` inexistente devuelve HTTP 400 con `{"mensaje":"..."}`. El contrato ya está alineado con el frontend y no se cambia a 404. Los servicios lanzan `IllegalArgumentException` para recursos inexistentes y reglas de negocio conocidas; `GlobalExceptionHandler.handleNegocio` conserva el 400. Los fallos internos siguen en 500 y los correlativos agotados en 409.
 
 **Evidencia cruda:** `validation/requests.log` caso 12:
 
@@ -235,7 +243,7 @@ GET /calibraciones/99999 -> 400 | {"mensaje":"Calibración no encontrada con id 
 GET /informes-tecnicos/99999 -> 400 | {"mensaje":"Informe Técnico no encontrado con id 99999"}
 ```
 
-El handler vigente retorna `HttpStatus.BAD_REQUEST` para `RuntimeException`.
+La salida anterior corresponde al código previo a E15. E15 separó excepciones de negocio y fallos internos, pero los servicios aún lanzaban `RuntimeException` para "no encontrado", lo que causó una regresión 500; **SUPERADA por el fix E16**.
 
 **E14 (HTTP real sobre `4385bca`):**
 
@@ -245,9 +253,23 @@ El handler vigente retorna `HttpStatus.BAD_REQUEST` para `RuntimeException`.
 [400] GET /api/ordenes-trabajo/999999 {"mensaje":"Orden de Trabajo no encontrada con id 999999"}
 ```
 
-Sin cambio de contrato (ver también [H17](#h17): estos 400 además llegan por la rama genérica de `RuntimeException`).
+El contrato observado en E14 fue 400. E15 cambió temporalmente esos casos a 500 porque las excepciones de negocio seguían tipadas como `RuntimeException`; E16 recupera el 400 sin volver a exponer bugs reales como errores de cliente.
 
-**Última verificación:** FreeBuff, 2026-09-25, E14 (HTTP). **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E5](HISTORIAL_VALIDACION.md#e5) → [E14](HISTORIAL_VALIDACION.md#e14).
+**E16 (servidor HTTP embebido con H2 en memoria):** antes del fix, `GET /api/clientes/999999999` respondió `HTTP 500 {"mensaje":"Error interno del servidor."}` sobre `73974ed`. Tras cambiar únicamente las construcciones explícitas de excepciones de negocio, la prueba `HallazgoH8ContratoHttpTest` exige 400 y el mensaje anterior en cinco recursos:
+
+```text
+### E16 GET /api/cotizaciones/999999999 -> HTTP 400 {"mensaje":"Cotización no encontrada con id 999999999"}
+### E16 GET /api/clientes/999999999 -> HTTP 400 {"mensaje":"Cliente no encontrado con id 999999999"}
+### E16 GET /api/calibraciones/999999999 -> HTTP 400 {"mensaje":"Calibración no encontrada con id 999999999"}
+### E16 GET /api/informes-tecnicos/999999999 -> HTTP 400 {"mensaje":"Informe Técnico no encontrado con id 999999999"}
+### E16 GET /api/ordenes-trabajo/999999999 -> HTTP 400 {"mensaje":"Orden de Trabajo no encontrada con id 999999999"}
+### E16 POST /api/clientes {"razonSocial":"Cliente E16","ruc":"20999999991"} -> HTTP 200 {"id":1,"razonSocial":"Cliente E16","ruc":"20999999991","direccion":null,"rubro":null,"contactos":[]}
+### E16 POST /api/clientes duplicado {"razonSocial":"Cliente E16","ruc":"20999999991"} -> HTTP 400 {"mensaje":"Ya existe un cliente con RUC 20999999991"}
+```
+
+**Reproducción:** `./mvnw -q -Dtest=HallazgoH8ContratoHttpTest test`. La prueba usa puerto aleatorio y BD aislada; compara status y body exactos para cinco GET y la duplicidad de negocio.
+
+**Última verificación:** Codex, 2026-09-25, E16 (HTTP embebido); decisión Kevin + Nicolás. **Historial:** [E1](HISTORIAL_VALIDACION.md#e1) → [E5](HISTORIAL_VALIDACION.md#e5) → [E14](HISTORIAL_VALIDACION.md#e14) → [E15](HISTORIAL_VALIDACION.md#e15) → [E16](HISTORIAL_VALIDACION.md#e16).
 
 <a id="h9"></a>
 

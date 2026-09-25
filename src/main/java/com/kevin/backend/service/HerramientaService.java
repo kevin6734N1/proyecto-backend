@@ -34,7 +34,7 @@ public class HerramientaService {
 
     public HerramientaDTO crear(HerramientaDTO dto) {
         if (herramientaRepository.existsByCodigoInterno(dto.codigoInterno())) {
-            throw new RuntimeException("Ya existe una herramienta con el código interno " + dto.codigoInterno());
+            throw new IllegalArgumentException("Ya existe una herramienta con el código interno " + dto.codigoInterno());
         }
         Herramienta herramienta = new Herramienta();
         aplicarDatos(herramienta, dto);
@@ -47,7 +47,7 @@ public class HerramientaService {
 
         if (!herramienta.getCodigoInterno().equals(dto.codigoInterno())
                 && herramientaRepository.existsByCodigoInterno(dto.codigoInterno())) {
-            throw new RuntimeException("Ya existe una herramienta con el código interno " + dto.codigoInterno());
+            throw new IllegalArgumentException("Ya existe una herramienta con el código interno " + dto.codigoInterno());
         }
 
         aplicarDatos(herramienta, dto);
@@ -71,7 +71,7 @@ public class HerramientaService {
 
     private Herramienta buscarEntidadPorId(Long id) {
         return herramientaRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Herramienta no encontrada con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Herramienta no encontrada con id " + id));
     }
 
     private HerramientaDTO toDTO(Herramienta h) {

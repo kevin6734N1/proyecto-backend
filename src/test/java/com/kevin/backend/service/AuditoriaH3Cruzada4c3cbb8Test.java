@@ -37,11 +37,9 @@ class AuditoriaH3Cruzada4c3cbb8Test {
     @Autowired private InstrumentoRepository instrumentos;
     @Autowired private EvaluacionAptitudRepository evaluaciones;
     @Autowired private CalibracionRepository calibraciones;
-    @Autowired private RevisionTecnicaRepository revisiones;
     @Autowired private InformeTecnicoRepository informes;
     @Autowired private ExpedienteService expedienteService;
     @Autowired private RevisionTecnicaService revisionService;
-    @Autowired private CorrelativoRetry correlativos;
 
     private static final AtomicInteger SECUENCIA_RUC = new AtomicInteger(9000);
 

@@ -44,7 +44,7 @@ public class CalibracionService {
     @Transactional
     public CalibracionDTO crear(CalibracionDTO dto) {
         EvaluacionAptitud evaluacion = evaluacionAptitudRepository.findById(dto.evaluacionAptitudId())
-                .orElseThrow(() -> new RuntimeException("Evaluación no encontrada con id " + dto.evaluacionAptitudId()));
+                .orElseThrow(() -> new IllegalArgumentException("Evaluación no encontrada con id " + dto.evaluacionAptitudId()));
 
         if (evaluacion.getResultado() != ResultadoEvaluacion.APTO) {
             throw new IllegalArgumentException(
@@ -104,7 +104,7 @@ public class CalibracionService {
         List<Herramienta> patrones = new ArrayList<>();
         for (Long id : ids) {
             Herramienta h = herramientaRepository.findById(id)
-                    .orElseThrow(() -> new RuntimeException("Herramienta (patrón) no encontrada con id " + id));
+                    .orElseThrow(() -> new IllegalArgumentException("Herramienta (patrón) no encontrada con id " + id));
             patrones.add(h);
         }
         return patrones;
@@ -112,7 +112,7 @@ public class CalibracionService {
 
     private Calibracion buscarEntidadPorId(Long id) {
         return calibracionRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Calibración no encontrada con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Calibración no encontrada con id " + id));
     }
 
     private CalibracionDTO toDTO(Calibracion c) {

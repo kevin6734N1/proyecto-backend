@@ -40,7 +40,7 @@ public class InstrumentoService {
 
     public InstrumentoDTO crear(InstrumentoDTO dto) {
         Cliente cliente = clienteRepository.findById(dto.clienteId())
-                .orElseThrow(() -> new RuntimeException("Cliente no encontrado con id " + dto.clienteId()));
+                .orElseThrow(() -> new IllegalArgumentException("Cliente no encontrado con id " + dto.clienteId()));
 
         Instrumento instrumento = new Instrumento();
         aplicarDatos(instrumento, dto, cliente);
@@ -52,7 +52,7 @@ public class InstrumentoService {
     public InstrumentoDTO actualizar(Long id, InstrumentoDTO dto) {
         Instrumento instrumento = buscarEntidadPorId(id);
         Cliente cliente = clienteRepository.findById(dto.clienteId())
-                .orElseThrow(() -> new RuntimeException("Cliente no encontrado con id " + dto.clienteId()));
+                .orElseThrow(() -> new IllegalArgumentException("Cliente no encontrado con id " + dto.clienteId()));
 
         aplicarDatos(instrumento, dto, cliente);
         return toDTO(instrumentoRepository.save(instrumento));
@@ -85,7 +85,7 @@ public class InstrumentoService {
 
     private Instrumento buscarEntidadPorId(Long id) {
         return instrumentoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Instrumento no encontrado con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Instrumento no encontrado con id " + id));
     }
 
     private InstrumentoDTO toDTO(Instrumento i) {

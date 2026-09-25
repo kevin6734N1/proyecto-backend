@@ -22,7 +22,7 @@ public class MarcaService {
 
     public MarcaDTO crear(MarcaDTO dto) {
         if (marcaRepository.existsByNombreIgnoreCase(dto.nombre())) {
-            throw new RuntimeException("Ya existe una marca con el nombre " + dto.nombre());
+            throw new IllegalArgumentException("Ya existe una marca con el nombre " + dto.nombre());
         }
         Marca marca = new Marca();
         marca.setNombre(dto.nombre());
@@ -31,7 +31,7 @@ public class MarcaService {
 
     public void eliminar(Long id) {
         Marca marca = marcaRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Marca no encontrada con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Marca no encontrada con id " + id));
         marcaRepository.delete(marca);
     }
 

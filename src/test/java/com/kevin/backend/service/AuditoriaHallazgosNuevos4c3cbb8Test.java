@@ -15,7 +15,6 @@ import com.kevin.backend.model.EstadoCalibracion;
 import com.kevin.backend.model.EstadoCotizacion;
 import com.kevin.backend.model.EstadoOrdenTrabajo;
 import com.kevin.backend.model.EvaluacionAptitud;
-import com.kevin.backend.model.InformeTecnico;
 import com.kevin.backend.model.Instrumento;
 import com.kevin.backend.model.OrdenDeTrabajo;
 import com.kevin.backend.model.ResultadoEvaluacion;
@@ -39,7 +38,6 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;

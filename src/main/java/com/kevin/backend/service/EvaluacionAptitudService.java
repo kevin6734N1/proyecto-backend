@@ -38,9 +38,9 @@ public class EvaluacionAptitudService {
     @Transactional
     public EvaluacionAptitudDTO crear(EvaluacionAptitudDTO dto) {
         OrdenDeTrabajo orden = ordenDeTrabajoRepository.findById(dto.ordenDeTrabajoId())
-                .orElseThrow(() -> new RuntimeException("Orden de Trabajo no encontrada con id " + dto.ordenDeTrabajoId()));
+                .orElseThrow(() -> new IllegalArgumentException("Orden de Trabajo no encontrada con id " + dto.ordenDeTrabajoId()));
         Instrumento instrumento = instrumentoRepository.findById(dto.instrumentoId())
-                .orElseThrow(() -> new RuntimeException("Instrumento no encontrado con id " + dto.instrumentoId()));
+                .orElseThrow(() -> new IllegalArgumentException("Instrumento no encontrado con id " + dto.instrumentoId()));
 
         EvaluacionAptitud evaluacion = new EvaluacionAptitud();
         evaluacion.setOrdenDeTrabajo(orden);
@@ -127,7 +127,7 @@ public class EvaluacionAptitudService {
 
     private EvaluacionAptitud buscarEntidadPorId(Long id) {
         return evaluacionRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Evaluación no encontrada con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Evaluación no encontrada con id " + id));
     }
 
     private EvaluacionAptitudDTO toDTO(EvaluacionAptitud e) {

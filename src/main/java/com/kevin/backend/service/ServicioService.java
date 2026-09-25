@@ -39,7 +39,7 @@ public class ServicioService {
 
     public ServicioDTO crear(ServicioDTO dto) {
         if (servicioRepository.existsByCodigo(dto.codigo())) {
-            throw new RuntimeException("Ya existe un servicio con el código " + dto.codigo());
+            throw new IllegalArgumentException("Ya existe un servicio con el código " + dto.codigo());
         }
         Servicio servicio = toEntity(dto);
         servicio.setId(null);
@@ -51,7 +51,7 @@ public class ServicioService {
         Servicio servicio = buscarEntidadPorId(id);
 
         if (!servicio.getCodigo().equals(dto.codigo()) && servicioRepository.existsByCodigo(dto.codigo())) {
-            throw new RuntimeException("Ya existe un servicio con el código " + dto.codigo());
+            throw new IllegalArgumentException("Ya existe un servicio con el código " + dto.codigo());
         }
 
         servicio.setCodigo(dto.codigo());
@@ -77,7 +77,7 @@ public class ServicioService {
 
     private Servicio buscarEntidadPorId(Long id) {
         return servicioRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Servicio no encontrado con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Servicio no encontrado con id " + id));
     }
 
     private ServicioDTO toDTO(Servicio s) {

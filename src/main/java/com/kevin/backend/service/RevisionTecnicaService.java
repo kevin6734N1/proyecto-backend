@@ -52,7 +52,7 @@ public class RevisionTecnicaService {
     @Transactional
     public RevisionTecnicaDTO crear(RevisionTecnicaDTO dto) {
         Calibracion calibracion = calibracionRepository.findByIdForUpdate(dto.calibracionId())
-                .orElseThrow(() -> new RuntimeException("Calibración no encontrada con id " + dto.calibracionId()));
+                .orElseThrow(() -> new IllegalArgumentException("Calibración no encontrada con id " + dto.calibracionId()));
 
         if (calibracion.getEstado() != EstadoCalibracion.COMPLETADA) {
             throw new IllegalArgumentException(
@@ -93,11 +93,11 @@ public class RevisionTecnicaService {
 
     private ResultadoRegistro registrarResultadoUnaVez(Long id, ResultadoRevision resultado, String observaciones) {
         Long calibracionId = revisionRepository.findCalibracionIdById(id)
-                .orElseThrow(() -> new RuntimeException("Revisión técnica no encontrada con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Revisión técnica no encontrada con id " + id));
         Calibracion calibracion = calibracionRepository.findByIdForUpdate(calibracionId)
-                .orElseThrow(() -> new RuntimeException("Calibración no encontrada con id " + calibracionId));
+                .orElseThrow(() -> new IllegalArgumentException("Calibración no encontrada con id " + calibracionId));
         RevisionTecnica revision = revisionRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> new RuntimeException("Revisión técnica no encontrada con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Revisión técnica no encontrada con id " + id));
 
         if (resultado == ResultadoRevision.PENDIENTE) {
             throw new IllegalArgumentException("No se puede volver a PENDIENTE.");
@@ -156,7 +156,7 @@ public class RevisionTecnicaService {
 
     private RevisionTecnica buscarEntidadPorId(Long id) {
         return revisionRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Revisión técnica no encontrada con id " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Revisión técnica no encontrada con id " + id));
     }
 
     private RevisionTecnicaDTO toDTO(RevisionTecnica r) {
