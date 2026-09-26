@@ -234,7 +234,7 @@ PUT /api/calibraciones/1/mediciones
 | GET | `/` y `/{id}` | |
 | POST | `/{id}/pdf-firmado` | `multipart/form-data`, campo `archivo` con PDF real (máx. 10 MB). Cambia a `PDF_CARGADO`. |
 | GET | `/{id}/pdf` | Descarga vista previa generada, sin firma. |
-| GET | `/{id}/pdf-firmado` | Descarga el archivo original solo desde `APROBADO`. |
+| GET | `/{id}/pdf-firmado` | Descarga el archivo original en `APROBADO` o `ENVIADO`. |
 | PATCH | `/{id}/estado?estado=APROBADO` | Solo `PDF_CARGADO → APROBADO → ENVIADO`; `ANULADO` no puede reactivarse. |
 
 > 💡 Al marcar `ENVIADO` el backend llena `fechaEnvio` con la fecha actual.
@@ -313,6 +313,9 @@ curl -s -X PATCH "$B/revisiones-tecnicas/1/resultado?resultado=CONFORME"
 # 7. Ciclo del informe
 curl -s -F "archivo=@informe-firmado.pdf;type=application/pdf" $B/informes-tecnicos/1/pdf-firmado
 curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=APROBADO"
+# Descargar y enviar este PDF al cliente por Gmail, fuera del sistema.
+curl -o informe-firmado-para-cliente.pdf "$B/informes-tecnicos/1/pdf-firmado"
+# Solo después del envío real, registrar la fecha en el sistema.
 curl -s -X PATCH "$B/informes-tecnicos/1/estado?estado=ENVIADO"
 ```
 
@@ -380,7 +383,9 @@ Los PDF de cotización, OT e informe técnico sin firma se generan **una sola ve
 
 Para cargar el firmado: `POST /api/informes-tecnicos/{id}/pdf-firmado` con `multipart/form-data`, nombre de campo **`archivo`**, archivo PDF de 1 byte a 10 MB. Se valida que sea un PDF legible y no se permite reemplazarlo. La respuesta es `InformeTecnicoDTO` con `pdfCargado=true`, `fechaCargaPdf` y estado `PDF_CARGADO`. El archivo se guarda en `./data/pdf-firmados/{id}.pdf`; hay que respaldar esa carpeta junto con H2 y `./data/pdf-generados/`. El booleano histórico por sí solo ya no sirve para aprobar: el archivo debe existir.
 
-Después se usa `PATCH /api/informes-tecnicos/{id}/estado?estado=APROBADO` y, cuando se confirme la entrega al cliente, `PATCH ...?estado=ENVIADO` registra la fecha actual. La API **no envía correos** todavía; ese último PATCH es un registro manual de la fecha de envío. Los intentos de saltar estados devuelven 400 con `mensaje`.
+**Convención operativa provisional de Kevin (25-set-2026), pendiente de confirmación por Gesmin para el frontend:** después de aprobar con `PATCH /api/informes-tecnicos/{id}/estado?estado=APROBADO`, Ventas descarga el PDF firmado mediante `GET /api/informes-tecnicos/{id}/pdf-firmado` y lo envía al cliente por Gmail fuera del sistema. La descarga por sí sola no equivale a un envío. Solo después de realizar el envío, Ventas llama a `PATCH /api/informes-tecnicos/{id}/estado?estado=ENVIADO`; la respuesta `InformeTecnicoDTO` refleja `estado=ENVIADO` y `fechaEnvio` con la fecha actual del servidor. El frontend debe ofrecer la descarga y una acción separada de «Marcar como enviado», sin presentarla como envío automático. El PDF firmado también se puede descargar cuando el informe ya está `ENVIADO`.
+
+La API **no envía correos** ni comprueba que Gmail haya entregado el mensaje. No registra destinatario, identificador del correo, acuse de entrega ni hora real de envío: `fechaEnvio` solo refleja el día en que se marcó `ENVIADO`. El PATCH no acepta una fecha anterior; para que coincida con el día real del envío, el operador debe marcarlo ese mismo día. Los intentos de saltar estados devuelven 400 con `mensaje`.
 
 **Límites de los modelos actuales:** la cotización se rotula `BORRADOR` porque aún no guarda moneda, IGV, forma de pago, asesor ni cuentas bancarias. Su PDF muestra el `montoTotal` actualmente guardado, sin inventar impuestos ni divisa. La OT no almacena cantidad o producto por cada actividad ni firmas reales. El Informe Técnico se genera con datos de calibración, evaluación y revisión, pero todavía no incluye todos los campos narrativos del formato legado; el certificado de calibración propio de Gesmin sigue pendiente de recibir. Estos PDF son funcionales para descarga y revisión, pero aún no son reproducciones finales de los formatos comerciales.
 
